@@ -3,6 +3,9 @@ import type {
   CleanupCandidate,
   CleanupPreview,
   CleanupResult,
+  LocalUpdateConfig,
+  LocalUpdateProgress,
+  LocalUpdateStatus,
   MacCleanerApi,
   ScanProgress,
   ScanSummary
@@ -210,6 +213,11 @@ export const demoSummary: ScanSummary = {
 
 export function createDemoApi(): MacCleanerApi {
   let listeners: Array<(progress: ScanProgress) => void> = []
+  let updateListeners: Array<(progress: LocalUpdateProgress) => void> = []
+  const demoUpdateConfig: LocalUpdateConfig = {
+    repoPath: '/Users/yizuo/Mac-Clearner',
+    installTarget: '/Users/yizuo/Applications/Mac Cleaner.app'
+  }
 
   return {
     async scan(language: AppLanguage = 'zh-CN') {
@@ -271,10 +279,56 @@ export function createDemoApi(): MacCleanerApi {
       }
     },
     async revealPath() {},
+    async checkForLocalUpdate(language: AppLanguage = 'zh-CN'): Promise<LocalUpdateStatus> {
+      return {
+        state: 'current',
+        updateAvailable: false,
+        currentVersion: '0.2.0',
+        latestVersion: '0.2.0',
+        repoPath: demoUpdateConfig.repoPath,
+        installTarget: demoUpdateConfig.installTarget,
+        currentBranch: 'codex/reliability-upgrades',
+        upstream: 'origin/codex/reliability-upgrades',
+        localCommit: 'demo-local',
+        remoteCommit: 'demo-local',
+        remoteUrl: 'https://github.com/zuoyi666/mac-cleaner.git',
+        dirty: false,
+        message: t(language, 'localUpdate.status.current'),
+        messageKey: 'localUpdate.status.current',
+        checkedAt: new Date().toISOString()
+      }
+    },
+    async runLocalSourceUpdate(language: AppLanguage = 'zh-CN') {
+      updateListeners.forEach((listener) =>
+        listener({
+          stage: 'done',
+          message: t(language, 'localUpdate.result.noUpdate'),
+          messageKey: 'localUpdate.result.noUpdate'
+        })
+      )
+      return {
+        updated: false,
+        previousVersion: '0.2.0',
+        currentVersion: '0.2.0',
+        installedPath: demoUpdateConfig.installTarget,
+        needsRelaunch: false,
+        message: t(language, 'localUpdate.result.noUpdate'),
+        messageKey: 'localUpdate.result.noUpdate'
+      }
+    },
+    async configureLocalUpdate(config: Partial<LocalUpdateConfig>) {
+      return { ...demoUpdateConfig, ...config }
+    },
     onScanProgress(listener: (progress: ScanProgress) => void) {
       listeners = [...listeners, listener]
       return () => {
         listeners = listeners.filter((item) => item !== listener)
+      }
+    },
+    onLocalUpdateProgress(listener: (progress: LocalUpdateProgress) => void) {
+      updateListeners = [...updateListeners, listener]
+      return () => {
+        updateListeners = updateListeners.filter((item) => item !== listener)
       }
     }
   }

@@ -75,6 +75,12 @@ npm run package:dir
 
 This produces a double-clickable `.app` with the Mac Cleaner icon, but it is intentionally unsigned for local development.
 
+Install and keep the maintainer's local app synced from this source checkout:
+
+- The app checks the current GitHub branch at startup and from `Local Settings`.
+- When an update is available, `Sync and Install` runs `git pull --ff-only`, `npm ci`, `npm run package:dir`, installs to `~/Applications/Mac Cleaner.app`, and restarts the app.
+- The update is blocked if tracked local files are dirty or if the branch diverged from its upstream.
+
 Create unsigned macOS release artifacts locally:
 
 ```bash
@@ -93,6 +99,22 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 ## Release Status
 
 `v0.2.0` adds a custom app icon and maintainer-only macOS signing/notarization workflow. Contributor builds remain unsigned local development builds. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+
+## Maintainer Push Helpers
+
+Push regular changes after validation:
+
+```bash
+npm run changes:push -- --message "feat: describe change"
+```
+
+Bump a SemVer version, validate, commit, and push the current PR branch:
+
+```bash
+npm run version:push -- --level patch --message "chore: release patch"
+```
+
+Use `--dry-run` to preview the commands without changing files or pushing.
 
 ## Versioning
 

@@ -274,6 +274,69 @@ button {
   box-shadow: 0 4px 14px rgba(40, 54, 77, 0.08);
 }
 
+.local-update-box {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.local-update-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.local-update-heading strong {
+  min-width: 0;
+}
+
+.update-state {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 14px;
+}
+
+.update-state.current {
+  color: var(--safe);
+  background: var(--safe-bg);
+}
+
+.update-state.available {
+  color: var(--accent);
+  background: #eaf2ff;
+}
+
+.update-state.blocked,
+.update-state.unknown {
+  color: var(--confirm);
+  background: var(--confirm-bg);
+}
+
+.update-progress-line {
+  color: var(--accent) !important;
+}
+
+.local-update-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.primary-button.mini,
+.secondary-button.mini {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 14px;
+}
+
 .sidebar-footer p {
   margin: 0;
   padding: 0 4px;
@@ -383,6 +446,7 @@ h1 {
 }
 
 .preview-banner,
+.update-banner,
 .message {
   display: flex;
   align-items: center;
@@ -398,6 +462,26 @@ h1 {
   color: #345072;
   background: #eaf2ff;
   border: 1px solid #cadcf8;
+}
+
+.update-banner {
+  justify-content: space-between;
+  color: #234870;
+  background: #eaf2ff;
+  border: 1px solid #cadcf8;
+}
+
+.update-banner > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.update-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .overview-grid {
@@ -1041,6 +1125,12 @@ h1 {
   background: var(--danger-bg);
   border: 1px solid var(--danger-line);
   border-radius: 8px;
+}
+
+.modal-icon.update-icon {
+  color: var(--accent);
+  background: #eaf2ff;
+  border-color: #cadcf8;
 }
 
 .modal h2 {

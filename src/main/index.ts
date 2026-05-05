@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AppLanguage, ScanProgress } from '../shared/types'
+import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanProgress } from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
+import { createLocalUpdateService } from './services/localUpdate'
 import type { ScanRun } from './services/scanner'
 import { scanStorage } from './services/scanner'
 
@@ -29,6 +30,7 @@ const cleanupManager = createCleanupManager(
   },
   shell.trashItem
 )
+const localUpdateService = createLocalUpdateService()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -123,6 +125,28 @@ function registerIpcHandlers(): void {
     }
     shell.showItemInFolder(targetPath)
   })
+
+  ipcMain.handle('mac-cleaner:check-local-update', async (event, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    return localUpdateService.checkForUpdate(language, (progress) => emitLocalUpdateProgress(event.sender, progress))
+  })
+
+  ipcMain.handle('mac-cleaner:run-local-update', async (event, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    const result = await localUpdateService.runSourceUpdate(language, (progress) => emitLocalUpdateProgress(event.sender, progress))
+    if (result.needsRelaunch) {
+      setTimeout(() => app.exit(0), 500)
+    }
+    return result
+  })
+
+  ipcMain.handle('mac-cleaner:configure-local-update', (_event, configInput: unknown) => {
+    return localUpdateService.configure(validateLocalUpdateConfig(configInput))
+  })
+}
+
+function emitLocalUpdateProgress(sender: WebContents, progress: LocalUpdateProgress): void {
+  sender.send('mac-cleaner:local-update-progress', progress)
 }
 
 function validateString(value: unknown, fieldName: string, language: AppLanguage = 'zh-CN'): string {
@@ -141,6 +165,26 @@ function validateCandidateIds(value: unknown, language: AppLanguage = 'zh-CN'): 
     throw new Error(t(language, 'main.invalidCandidateCount'))
   }
   return candidateIds
+}
+
+function validateLocalUpdateConfig(value: unknown): Partial<LocalUpdateConfig> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const input = value as Record<string, unknown>
+  const config: Partial<LocalUpdateConfig> = {}
+  if (input.repoPath !== undefined) {
+    config.repoPath = validatePathString(input.repoPath, 'repoPath')
+  }
+  if (input.installTarget !== undefined) {
+    config.installTarget = validatePathString(input.installTarget, 'installTarget')
+  }
+  return config
+}
+
+function validatePathString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 500 || !path.isAbsolute(value)) {
+    throw new Error(t('zh-CN', 'main.invalidParam', { fieldName }))
+  }
+  return value
 }
 
 function validateLanguage(value: unknown): AppLanguage {

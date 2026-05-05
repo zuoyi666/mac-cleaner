@@ -5,7 +5,25 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MacCleanerApp } from '../src/renderer/src/MacCleanerApp'
 import { demoSummary } from '../src/renderer/src/demoApi'
-import type { CleanupPreview, MacCleanerApi } from '../src/shared/types'
+import type { CleanupPreview, LocalUpdateStatus, MacCleanerApi } from '../src/shared/types'
+
+const currentUpdateStatus: LocalUpdateStatus = {
+  state: 'current',
+  updateAvailable: false,
+  currentVersion: '0.2.0',
+  latestVersion: '0.2.0',
+  repoPath: '/Users/yizuo/Mac-Clearner',
+  installTarget: '/Users/yizuo/Applications/Mac Cleaner.app',
+  currentBranch: 'codex/reliability-upgrades',
+  upstream: 'origin/codex/reliability-upgrades',
+  localCommit: 'local',
+  remoteCommit: 'local',
+  remoteUrl: 'https://github.com/zuoyi666/mac-cleaner.git',
+  dirty: false,
+  message: '当前本机代码已与 GitHub 同步。',
+  messageKey: 'localUpdate.status.current',
+  checkedAt: new Date().toISOString()
+}
 
 describe('MacCleanerApp', () => {
   beforeEach(() => {
@@ -42,7 +60,22 @@ describe('MacCleanerApp', () => {
         needsRescan: true
       }),
       revealPath: vi.fn().mockResolvedValue(undefined),
-      onScanProgress: vi.fn(() => () => undefined)
+      checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
+      runLocalSourceUpdate: vi.fn().mockResolvedValue({
+        updated: false,
+        previousVersion: '0.2.0',
+        currentVersion: '0.2.0',
+        installedPath: currentUpdateStatus.installTarget,
+        needsRelaunch: false,
+        message: '当前已经是最新版本。',
+        messageKey: 'localUpdate.result.noUpdate'
+      }),
+      configureLocalUpdate: vi.fn().mockResolvedValue({
+        repoPath: currentUpdateStatus.repoPath,
+        installTarget: currentUpdateStatus.installTarget
+      }),
+      onScanProgress: vi.fn(() => () => undefined),
+      onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
 
     render(<MacCleanerApp api={api} initialSummary={null} />)
@@ -91,7 +124,22 @@ describe('MacCleanerApp', () => {
         needsRescan: true
       }),
       revealPath: vi.fn().mockResolvedValue(undefined),
-      onScanProgress: vi.fn(() => () => undefined)
+      checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
+      runLocalSourceUpdate: vi.fn().mockResolvedValue({
+        updated: false,
+        previousVersion: '0.2.0',
+        currentVersion: '0.2.0',
+        installedPath: currentUpdateStatus.installTarget,
+        needsRelaunch: false,
+        message: '当前已经是最新版本。',
+        messageKey: 'localUpdate.result.noUpdate'
+      }),
+      configureLocalUpdate: vi.fn().mockResolvedValue({
+        repoPath: currentUpdateStatus.repoPath,
+        installTarget: currentUpdateStatus.installTarget
+      }),
+      onScanProgress: vi.fn(() => () => undefined),
+      onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
@@ -119,5 +167,55 @@ describe('MacCleanerApp', () => {
 
     expect(await screen.findByRole('dialog', { name: /Confirm Move to Trash/ })).toBeInTheDocument()
     expect(screen.getByText(/After confirmation these items will be moved to Trash/)).toBeInTheDocument()
+  })
+
+  it('shows local update availability and requires confirmation before syncing', async () => {
+    const user = userEvent.setup()
+    const availableStatus: LocalUpdateStatus = {
+      ...currentUpdateStatus,
+      state: 'available',
+      updateAvailable: true,
+      latestVersion: '0.3.0',
+      remoteCommit: 'remote',
+      message: 'GitHub 上有新提交可同步。',
+      messageKey: 'localUpdate.status.available'
+    }
+    const api: MacCleanerApi = {
+      scan: vi.fn().mockResolvedValue(demoSummary),
+      cancelScan: vi.fn().mockResolvedValue(undefined),
+      cleanupPreview: vi.fn(),
+      moveToTrash: vi.fn(),
+      revealPath: vi.fn().mockResolvedValue(undefined),
+      checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
+      runLocalSourceUpdate: vi.fn().mockResolvedValue({
+        updated: true,
+        previousVersion: '0.2.0',
+        currentVersion: '0.3.0',
+        installedPath: availableStatus.installTarget,
+        needsRelaunch: true,
+        message: '已同步到 0.3.0，即将重启。',
+        messageKey: 'localUpdate.result.updated',
+        messageParams: { currentVersion: '0.3.0' }
+      }),
+      configureLocalUpdate: vi.fn().mockResolvedValue({
+        repoPath: availableStatus.repoPath,
+        installTarget: availableStatus.installTarget
+      }),
+      onScanProgress: vi.fn(() => () => undefined),
+      onLocalUpdateProgress: vi.fn(() => () => undefined)
+    }
+
+    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
+
+    expect(await screen.findByText(/GitHub 上有新的 Mac Cleaner 版本/)).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: /同步并安装/ })[0])
+    expect(await screen.findByRole('dialog', { name: /确认同步并安装/ })).toBeInTheDocument()
+    expect(api.runLocalSourceUpdate).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /确认同步并重启/ }))
+
+    await waitFor(() => {
+      expect(api.runLocalSourceUpdate).toHaveBeenCalledWith('zh-CN')
+    })
   })
 })

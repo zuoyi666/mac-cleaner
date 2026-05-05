@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  DownloadCloud,
   ExternalLink,
   FileArchive,
   FolderOpen,
@@ -27,6 +28,8 @@ import type {
   CleanupCandidate,
   CleanupPreview,
   CleanupResult,
+  LocalUpdateProgress,
+  LocalUpdateStatus,
   MacCleanerApi,
   SafetyLevel,
   ScanProgress,
@@ -94,11 +97,33 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [isCleaning, setIsCleaning] = useState(false)
   const [result, setResult] = useState<CleanupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [localUpdateStatus, setLocalUpdateStatus] = useState<LocalUpdateStatus | null>(null)
+  const [localUpdateProgress, setLocalUpdateProgress] = useState<LocalUpdateProgress | null>(null)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [showUpdateConfirm, setShowUpdateConfirm] = useState(false)
   const [cleanupHistory, setCleanupHistory] = useState<Array<{ id: string; at: string; count: number; bytes: number }>>(() =>
     readCleanupHistory()
   )
 
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
+  useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
+
+  useEffect(() => {
+    let cancelled = false
+    async function initialUpdateCheck(): Promise<void> {
+      try {
+        const status = await macCleaner.checkForLocalUpdate(language)
+        if (!cancelled) setLocalUpdateStatus(status)
+      } catch {
+        if (!cancelled) setLocalUpdateStatus(null)
+      }
+    }
+    void initialUpdateCheck()
+    return () => {
+      cancelled = true
+    }
+  }, [macCleaner, language])
 
   const categories = summary?.categories ?? []
   const candidates = summary?.candidates ?? []
@@ -257,6 +282,40 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
+  async function checkLocalUpdate(): Promise<void> {
+    setIsCheckingUpdate(true)
+    setError(null)
+    try {
+      setLocalUpdateStatus(await macCleaner.checkForLocalUpdate(language))
+    } catch (updateError) {
+      setError(formatError(updateError))
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }
+
+  async function runLocalUpdate(): Promise<void> {
+    setIsUpdating(true)
+    setError(null)
+    setShowUpdateConfirm(false)
+    try {
+      const updateResult = await macCleaner.runLocalSourceUpdate(language)
+      setLocalUpdateProgress({
+        stage: updateResult.needsRelaunch ? 'relaunching' : 'done',
+        message: updateResult.message,
+        messageKey: updateResult.messageKey,
+        messageParams: updateResult.messageParams
+      })
+      if (!updateResult.needsRelaunch) {
+        setLocalUpdateStatus(await macCleaner.checkForLocalUpdate(language))
+      }
+    } catch (updateError) {
+      setError(formatError(updateError))
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -319,6 +378,36 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 {t(language, 'language.en')}
               </button>
             </div>
+            <div className="local-update-box">
+              <div className="local-update-heading">
+                <strong>{t(language, 'ui.localUpdateTitle')}</strong>
+                <span className={`update-state ${localUpdateStatus?.state ?? 'unknown'}`}>
+                  {formatLocalUpdateState(localUpdateStatus, language)}
+                </span>
+              </div>
+              <span>{formatLocalUpdateVersion(localUpdateStatus, language)}</span>
+              <span>{formatLocalUpdateBranch(localUpdateStatus, language)}</span>
+              <span>{formatLocalUpdateTarget(localUpdateStatus, language)}</span>
+              {localUpdateProgress && (
+                <span className="update-progress-line">
+                  {t(language, 'ui.localUpdateProgress')}: {localizeLocalUpdateProgress(localUpdateProgress, language)}
+                </span>
+              )}
+              <div className="local-update-actions">
+                <button className="secondary-button mini" onClick={checkLocalUpdate} disabled={isCheckingUpdate || isUpdating}>
+                  {isCheckingUpdate ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
+                  {t(language, 'ui.localUpdateCheck')}
+                </button>
+                <button
+                  className="primary-button mini"
+                  onClick={() => setShowUpdateConfirm(true)}
+                  disabled={!localUpdateStatus?.updateAvailable || isUpdating}
+                >
+                  {isUpdating ? <Loader2 className="spin" size={14} /> : <DownloadCloud size={14} />}
+                  {t(language, 'ui.localUpdateSync')}
+                </button>
+              </div>
+            </div>
           </div>
           <div className="history-card">
             <strong>{t(language, 'ui.historyTitle')}</strong>
@@ -365,6 +454,19 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         {isBrowserPreview && (
           <div className="preview-banner">
             {t(language, 'ui.previewBanner')}
+          </div>
+        )}
+
+        {localUpdateStatus?.updateAvailable && (
+          <div className="update-banner">
+            <div>
+              <DownloadCloud size={17} />
+              <span>{t(language, 'ui.localUpdateBannerText')}</span>
+            </div>
+            <button className="primary-button" onClick={() => setShowUpdateConfirm(true)} disabled={isUpdating}>
+              {isUpdating ? <Loader2 className="spin" size={16} /> : <DownloadCloud size={16} />}
+              {t(language, 'ui.localUpdateSync')}
+            </button>
           </div>
         )}
 
@@ -518,6 +620,15 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           isCleaning={isCleaning}
           onCancel={() => setPreview(null)}
           onConfirm={confirmCleanup}
+        />
+      )}
+      {showUpdateConfirm && localUpdateStatus && (
+        <LocalUpdateConfirmationModal
+          status={localUpdateStatus}
+          language={language}
+          isUpdating={isUpdating}
+          onCancel={() => setShowUpdateConfirm(false)}
+          onConfirm={runLocalUpdate}
         />
       )}
     </div>
@@ -782,6 +893,53 @@ function ConfirmationModal({
   )
 }
 
+function LocalUpdateConfirmationModal({
+  status,
+  language,
+  isUpdating,
+  onCancel,
+  onConfirm
+}: {
+  status: LocalUpdateStatus
+  language: AppLanguage
+  isUpdating: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}): JSX.Element {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
+        <button className="modal-close icon-button" onClick={onCancel} aria-label={t(language, 'ui.closeModal')}>
+          <X size={16} />
+        </button>
+        <div className="modal-icon update-icon">
+          <DownloadCloud size={22} />
+        </div>
+        <h2 id="update-confirm-title">{t(language, 'ui.localUpdateConfirmTitle')}</h2>
+        <p>{t(language, 'ui.localUpdateConfirmText', { installTarget: status.installTarget })}</p>
+        <div className="preview-list">
+          <span>{formatLocalUpdateVersion(status, language)}</span>
+          <span>{formatLocalUpdateBranch(status, language)}</span>
+          <span>{formatLocalUpdateTarget(status, language)}</span>
+        </div>
+        <div className="modal-warning">
+          <AlertTriangle size={16} />
+          <span>{localizeLocalUpdateStatus(status, language)}</span>
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onCancel} disabled={isUpdating}>
+            {t(language, 'ui.localUpdateCancelButton')}
+          </button>
+          <button className="primary-button" onClick={onConfirm} disabled={isUpdating}>
+            {isUpdating ? <Loader2 className="spin" size={16} /> : <DownloadCloud size={16} />}
+            {t(language, 'ui.localUpdateConfirmButton')}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -825,6 +983,41 @@ function localizeIssue(issue: ScanIssue, language: AppLanguage): string {
 function localizeProgress(progress: ScanProgress | null, language: AppLanguage): string | null {
   if (!progress) return null
   return progress.messageKey ? t(language, progress.messageKey, progress.messageParams) : progress.message
+}
+
+function localizeLocalUpdateProgress(progress: LocalUpdateProgress, language: AppLanguage): string {
+  return progress.messageKey ? t(language, progress.messageKey, progress.messageParams) : progress.message
+}
+
+function localizeLocalUpdateStatus(status: LocalUpdateStatus, language: AppLanguage): string {
+  return status.messageKey ? t(language, status.messageKey, status.messageParams) : status.message
+}
+
+function formatLocalUpdateState(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  if (!status) return t(language, 'ui.localUpdateUnknown')
+  if (status.state === 'available') return t(language, 'ui.localUpdateAvailable')
+  if (status.state === 'blocked') return t(language, 'ui.localUpdateBlocked')
+  if (status.state === 'current') return t(language, 'ui.localUpdateCurrent')
+  return t(language, 'ui.localUpdateUnknown')
+}
+
+function formatLocalUpdateVersion(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  const currentVersion = status?.currentVersion ?? 'unknown'
+  const latestVersion = status?.latestVersion ?? currentVersion
+  return t(language, 'ui.localUpdateVersion', { currentVersion, latestVersion })
+}
+
+function formatLocalUpdateBranch(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  return t(language, 'ui.localUpdateBranch', {
+    branch: status?.currentBranch ?? 'unknown',
+    upstream: status?.upstream ?? 'no upstream'
+  })
+}
+
+function formatLocalUpdateTarget(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  return t(language, 'ui.localUpdateInstallTarget', {
+    installTarget: status?.installTarget ?? '~/Applications/Mac Cleaner.app'
+  })
 }
 
 function localizePreviewTitle(preview: CleanupPreview, language: AppLanguage): string {

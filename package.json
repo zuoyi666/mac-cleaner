@@ -33,7 +33,9 @@
     "dist:mac": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null -c.mac.notarize=false",
     "dist:mac:signed": "npm run release:mac:preflight && npm run build && electron-builder --mac --publish=never",
     "release:dry-run": "npm run icon:build && electron-builder --mac --dir --publish=never -c.mac.identity=null -c.mac.notarize=false",
-    "release:mac:preflight": "node scripts/release-mac-preflight.mjs"
+    "release:mac:preflight": "node scripts/release-mac-preflight.mjs",
+    "version:push": "node scripts/version-push.mjs",
+    "changes:push": "node scripts/changes-push.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
