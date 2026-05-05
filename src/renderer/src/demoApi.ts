@@ -1,4 +1,5 @@
 import type {
+  CleanupCandidate,
   CleanupPreview,
   CleanupResult,
   MacCleanerApi,
@@ -7,8 +8,10 @@ import type {
 } from '../../shared/types'
 
 const now = new Date('2026-05-05T10:00:00.000Z').toISOString()
+const demoScanId = 'demo-scan-2026-05-05'
 
 export const demoSummary: ScanSummary = {
+  scanId: demoScanId,
   scannedAt: now,
   homeDir: '/Users/yizuo',
   disk: {
@@ -62,7 +65,7 @@ export const demoSummary: ScanSummary = {
       description: '应用内网页视图的 HTTP 存储缓存',
       sizeBytes: 2_602_532_864,
       candidateCount: 3,
-      safetyBreakdown: { safe: 3, confirm: 0, discouraged: 0 }
+      safetyBreakdown: { safe: 0, confirm: 3, discouraged: 0 }
     },
     {
       id: 'saved-state',
@@ -82,7 +85,7 @@ export const demoSummary: ScanSummary = {
     }
   ],
   candidates: [
-    {
+    makeDemoCandidate({
       id: 'demo-cache-arc',
       title: 'company.thebrowser.Browser',
       categoryId: 'caches',
@@ -98,8 +101,8 @@ export const demoSummary: ScanSummary = {
       impact: '清理后相关应用首次启动或加载内容时可能变慢，但不会删除核心文档。',
       actionLabel: '移到废纸篓',
       lastModified: now
-    },
-    {
+    }),
+    makeDemoCandidate({
       id: 'demo-cache-xcode',
       title: 'com.apple.dt.Xcode',
       categoryId: 'caches',
@@ -115,25 +118,25 @@ export const demoSummary: ScanSummary = {
       impact: '清理后相关应用首次启动或加载内容时可能变慢，但不会删除核心文档。',
       actionLabel: '移到废纸篓',
       lastModified: now
-    },
-    {
+    }),
+    makeDemoCandidate({
       id: 'demo-http-storage',
       title: 'com.chatapp.desktop',
       categoryId: 'http-storage',
       categoryName: '网页缓存存储',
       kind: 'http-storage',
-      safety: 'safe',
+      safety: 'confirm',
       canClean: true,
       sizeBytes: 2_602_532_864,
       itemCount: 4_932,
       pathPreview: '~/Library/HTTPStorages/com.chatapp.desktop',
       pathToken: 'demo-http-token',
-      reason: 'HTTP 缓存可由应用重新下载。',
-      impact: '相关应用可能需要重新登录或重新加载部分网页资源。',
-      actionLabel: '移到废纸篓',
+      reason: 'HTTP 存储可能包含应用内网页缓存、cookie 或本地站点数据。',
+      impact: '相关应用可能需要重新登录、重新下载网页资源，或丢失部分网站本地状态。',
+      actionLabel: '确认后移到废纸篓',
       lastModified: now
-    },
-    {
+    }),
+    makeDemoCandidate({
       id: 'demo-download-1',
       title: 'DesignTool-4.2.1.dmg',
       categoryId: 'downloads',
@@ -149,8 +152,8 @@ export const demoSummary: ScanSummary = {
       impact: '会移走你下载过的安装包或归档文件；请先确认不是仍要保留的文件。',
       actionLabel: '确认后移到废纸篓',
       lastModified: now
-    },
-    {
+    }),
+    makeDemoCandidate({
       id: 'demo-saved-state',
       title: 'com.apple.Preview.savedState',
       categoryId: 'saved-state',
@@ -166,7 +169,7 @@ export const demoSummary: ScanSummary = {
       impact: '清理后应用可能无法恢复上次窗口位置、标签页或临时界面状态。',
       actionLabel: '确认后移到废纸篓',
       lastModified: now
-    }
+    })
   ]
 }
 
@@ -175,33 +178,43 @@ export function createDemoApi(): MacCleanerApi {
 
   return {
     async scan() {
-      listeners.forEach((listener) => listener({ stage: 'scanning', message: '浏览器预览模式：正在加载示例扫描结果' }))
+      listeners.forEach((listener) =>
+        listener({ scanId: demoScanId, stage: 'scanning', message: '浏览器预览模式：正在加载示例扫描结果', percent: 40 })
+      )
       await new Promise((resolve) => setTimeout(resolve, 250))
-      listeners.forEach((listener) => listener({ stage: 'done', message: '示例扫描完成' }))
+      listeners.forEach((listener) => listener({ scanId: demoScanId, stage: 'done', message: '示例扫描完成', percent: 100 }))
       return demoSummary
     },
-    async cleanupPreview(candidateId: string): Promise<CleanupPreview> {
-      const candidate = demoSummary.candidates.find((item) => item.id === candidateId)
-      if (!candidate) throw new Error('未找到示例项目')
+    async cancelScan() {},
+    async cleanupPreview(candidateIds: string[]): Promise<CleanupPreview> {
+      const candidates = demoSummary.candidates.filter((item) => candidateIds.includes(item.id))
+      if (!candidates.length) throw new Error('未找到示例项目')
+      const totalBytes = candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
       return {
-        candidateId,
-        confirmationId: `demo-confirm-${candidateId}`,
-        title: candidate.title,
-        totalBytes: candidate.sizeBytes,
-        pathCount: 1,
-        pathSamples: [candidate.pathPreview],
-        impact: candidate.impact,
+        candidateIds,
+        confirmationId: `demo-confirm-${candidateIds.join('-')}`,
+        scanId: demoScanId,
+        pathSnapshotHash: `demo-preview-${candidateIds.join('-')}`,
+        title: candidates.length === 1 ? candidates[0].title : `${candidates.length} 个清理项目`,
+        totalBytes,
+        pathCount: candidates.reduce((sum, candidate) => sum + candidate.pathCount, 0),
+        pathSamples: candidates.map((candidate) => candidate.pathPreview),
+        impact: candidates.length === 1 ? candidates[0].impact : '所选项目包含多个缓存或需确认项，请确认后再移到废纸篓。',
         warning: '确认后会将这些项目移到废纸篓，不会永久删除。清倒废纸篓前仍可手动恢复。',
         expiresAt: new Date(Date.now() + 300_000).toISOString()
       }
     },
-    async moveToTrash(candidateId: string): Promise<CleanupResult> {
+    async moveToTrash(candidateIds: string[]): Promise<CleanupResult> {
+      const cleanedBytes = demoSummary.candidates
+        .filter((candidate) => candidateIds.includes(candidate.id))
+        .reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
       return {
-        candidateId,
-        cleanedBytes: demoSummary.candidates.find((candidate) => candidate.id === candidateId)?.sizeBytes ?? 0,
-        successCount: 1,
+        candidateIds,
+        cleanedBytes,
+        successCount: candidateIds.length,
         failed: [],
-        movedToTrash: true
+        movedToTrash: true,
+        needsRescan: true
       }
     },
     async revealPath() {},
@@ -211,5 +224,16 @@ export function createDemoApi(): MacCleanerApi {
         listeners = listeners.filter((item) => item !== listener)
       }
     }
+  }
+}
+
+function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCount' | 'pathSamples' | 'pathSnapshotHash' | 'estimateSource'>): CleanupCandidate {
+  return {
+    ...candidate,
+    scanId: demoScanId,
+    pathCount: candidate.itemCount,
+    pathSamples: [candidate.pathPreview],
+    pathSnapshotHash: `hash-${candidate.id}`,
+    estimateSource: candidate.itemCount === 1 ? 'file-stat' : 'filesystem-walk'
   }
 }

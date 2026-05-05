@@ -79,13 +79,18 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   )
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
+  const [sortMode, setSortMode] = useState<'size-desc' | 'risk-desc' | 'name-asc'>('size-desc')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [preview, setPreview] = useState<CleanupPreview | null>(null)
   const [isCleaning, setIsCleaning] = useState(false)
   const [result, setResult] = useState<CleanupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cleanupHistory, setCleanupHistory] = useState<Array<{ id: string; at: string; count: number; bytes: number }>>(() =>
+    readCleanupHistory()
+  )
 
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
 
@@ -93,7 +98,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const candidates = summary?.candidates ?? []
 
   const filteredCandidates = useMemo(() => {
-    return candidates.filter((candidate) => {
+    const filtered = candidates.filter((candidate) => {
       const matchesCategory = selectedCategoryId === 'all' || candidate.categoryId === selectedCategoryId
       const lowerQuery = query.trim().toLowerCase()
       const matchesQuery =
@@ -103,7 +108,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         candidate.categoryName.toLowerCase().includes(lowerQuery)
       return matchesCategory && matchesQuery
     })
-  }, [candidates, selectedCategoryId, query])
+    return sortCandidates(filtered, sortMode)
+  }, [candidates, selectedCategoryId, query, sortMode])
 
   const selectedCandidate = useMemo(() => {
     if (selectedCandidateId) {
@@ -123,6 +129,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   }, [candidates, filteredCandidates, selectedCandidateId])
 
   const totalCandidates = candidates.length
+  const selectedCleanableIds = useMemo(
+    () => filteredCandidates.filter((candidate) => selectedIds.has(candidate.id) && candidate.canClean).map((candidate) => candidate.id),
+    [filteredCandidates, selectedIds]
+  )
   const usedPercent = summary?.disk.totalBytes
     ? Math.round((summary.disk.usedBytes / summary.disk.totalBytes) * 100)
     : 0
@@ -138,6 +148,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setSummary(nextSummary)
       setSelectedCategoryId('all')
       setSelectedCandidateId(nextSummary.candidates[0]?.id ?? null)
+      setSelectedIds(new Set())
     } catch (scanError) {
       setError(formatError(scanError))
     } finally {
@@ -145,11 +156,19 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
-  async function openCleanupPreview(candidate: CleanupCandidate): Promise<void> {
+  async function cancelScan(): Promise<void> {
+    try {
+      await macCleaner.cancelScan()
+    } catch (cancelError) {
+      setError(formatError(cancelError))
+    }
+  }
+
+  async function openCleanupPreview(candidateIds: string[]): Promise<void> {
     setError(null)
     setResult(null)
     try {
-      setPreview(await macCleaner.cleanupPreview(candidate.id))
+      setPreview(await macCleaner.cleanupPreview(candidateIds))
     } catch (previewError) {
       setError(formatError(previewError))
     }
@@ -160,21 +179,24 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     setIsCleaning(true)
     setError(null)
     try {
-      const cleanupResult = await macCleaner.moveToTrash(preview.candidateId, preview.confirmationId)
+      const cleanupResult = await macCleaner.moveToTrash(preview.candidateIds, preview.confirmationId)
       setResult(cleanupResult)
       setPreview(null)
+      recordCleanupHistory(cleanupResult, setCleanupHistory)
       if (!isBrowserPreview) {
         const nextSummary = await macCleaner.scan()
         setSummary(nextSummary)
+        setSelectedIds(new Set())
       } else {
         setSummary((current) =>
           current
             ? {
                 ...current,
-                candidates: current.candidates.filter((candidate) => candidate.id !== preview.candidateId)
+                candidates: current.candidates.filter((candidate) => !preview.candidateIds.includes(candidate.id))
               }
             : current
         )
+        setSelectedIds(new Set())
       }
     } catch (cleanupError) {
       setError(formatError(cleanupError))
@@ -183,9 +205,41 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
+  function toggleCandidate(candidateId: string): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(candidateId)) next.delete(candidateId)
+      else next.add(candidateId)
+      return next
+    })
+  }
+
+  function toggleAllVisible(): void {
+    setSelectedIds((current) => {
+      const visibleCleanableIds = filteredCandidates.filter((candidate) => candidate.canClean).map((candidate) => candidate.id)
+      const allSelected = visibleCleanableIds.every((candidateId) => current.has(candidateId))
+      const next = new Set(current)
+      for (const candidateId of visibleCleanableIds) {
+        if (allSelected) next.delete(candidateId)
+        else next.add(candidateId)
+      }
+      return next
+    })
+  }
+
   async function reveal(candidate: CleanupCandidate): Promise<void> {
     try {
       await macCleaner.revealPath(candidate.pathToken)
+    } catch (revealError) {
+      setError(formatError(revealError))
+    }
+  }
+
+  async function revealTrash(): Promise<void> {
+    const trashToken = summary?.trash.pathToken
+    if (!trashToken) return
+    try {
+      await macCleaner.revealPath(trashToken)
     } catch (revealError) {
       setError(formatError(revealError))
     }
@@ -231,8 +285,30 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               <span>废纸篓已占用</span>
               <strong>{formatBytes(summary?.trash.sizeBytes ?? 0)}</strong>
             </div>
+            <button
+              className="icon-button trash-open-button"
+              title="在 Finder 中打开废纸篓"
+              disabled={!summary?.trash.pathToken}
+              onClick={revealTrash}
+            >
+              <ExternalLink size={14} />
+            </button>
           </div>
           <p>工具只会把确认的条目移到废纸篓，不会清空废纸篓或永久删除。</p>
+          <div className="settings-card">
+            <strong>本地设置</strong>
+            <span>免费 · 无遥测 · 无后台清理</span>
+          </div>
+          <div className="history-card">
+            <strong>清理历史</strong>
+            {cleanupHistory.length ? (
+              cleanupHistory.slice(0, 3).map((entry) => (
+                <span key={entry.id}>{entry.count} 项 · {formatBytes(entry.bytes)} · {new Date(entry.at).toLocaleDateString('zh-CN')}</span>
+              ))
+            ) : (
+              <span>暂无清理记录</span>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -251,6 +327,11 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               {isScanning ? <Loader2 className="spin" size={17} /> : <RefreshCw size={17} />}
               {isScanning ? '扫描中' : '扫描存储空间'}
             </button>
+            {isScanning && (
+              <button className="secondary-button" onClick={cancelScan}>
+                取消扫描
+              </button>
+            )}
           </div>
         </header>
 
@@ -288,14 +369,22 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               <div className={isScanning ? 'pulse-dot active' : 'pulse-dot'} />
               <div>
                 <strong>{progress?.message ?? '点击扫描后开始读取文件大小'}</strong>
-                <span>{progress?.currentPath ?? '不会移动、删除或修改任何文件'}</span>
+                <span>
+                  {progress?.currentPath ?? '不会移动、删除或修改任何文件'}
+                  {progress?.percent !== undefined ? ` · ${progress.percent}%` : ''}
+                </span>
               </div>
             </div>
             {summary?.issues.length ? (
-              <div className="issue-line">
-                <Info size={15} />
-                <span>{summary.issues.length} 个目录因权限或符号链接被跳过</span>
-              </div>
+              <details className="issue-details">
+                <summary>
+                  <Info size={15} />
+                  <span>{summary.issues.length} 个目录因权限、超时或符号链接被跳过</span>
+                </summary>
+                {summary.issues.slice(0, 6).map((issue) => (
+                  <p key={issue.id}>{issue.message} · {issue.path}</p>
+                ))}
+              </details>
             ) : (
               <div className="issue-line muted">
                 <CheckCircle2 size={15} />
@@ -316,6 +405,22 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 <Search size={16} />
                 <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索路径或分类" />
               </label>
+              <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+                <option value="size-desc">按大小排序</option>
+                <option value="risk-desc">按风险排序</option>
+                <option value="name-asc">按名称排序</option>
+              </select>
+              <button className="secondary-button" onClick={toggleAllVisible} disabled={!filteredCandidates.some((candidate) => candidate.canClean)}>
+                {selectedCleanableIds.length ? '取消选择' : '选择可清理项'}
+              </button>
+              <button
+                className="primary-button danger"
+                onClick={() => openCleanupPreview(selectedCleanableIds)}
+                disabled={!selectedCleanableIds.length}
+              >
+                <Trash2 size={16} />
+                批量确认 {selectedCleanableIds.length}
+              </button>
             </div>
 
             {error && (
@@ -348,9 +453,11 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   key={candidate.id}
                   candidate={candidate}
                   selected={selectedCandidate?.id === candidate.id}
+                  checked={selectedIds.has(candidate.id)}
                   onSelect={() => setSelectedCandidateId(candidate.id)}
+                  onToggleSelect={() => toggleCandidate(candidate.id)}
                   onReveal={() => reveal(candidate)}
-                  onCleanup={() => openCleanupPreview(candidate)}
+                  onCleanup={() => openCleanupPreview([candidate.id])}
                 />
               ))}
             </div>
@@ -367,7 +474,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           <CandidateInspector
             candidate={selectedCandidate}
             onReveal={selectedCandidate ? () => reveal(selectedCandidate) : undefined}
-            onCleanup={selectedCandidate ? () => openCleanupPreview(selectedCandidate) : undefined}
+            onCleanup={selectedCandidate ? () => openCleanupPreview([selectedCandidate.id]) : undefined}
           />
         </section>
       </main>
@@ -406,13 +513,17 @@ function CategoryNavItem({
 function CandidateRow({
   candidate,
   selected,
+  checked,
   onSelect,
+  onToggleSelect,
   onReveal,
   onCleanup
 }: {
   candidate: CleanupCandidate
   selected: boolean
+  checked: boolean
   onSelect: () => void
+  onToggleSelect: () => void
   onReveal: () => void
   onCleanup: () => void
 }): JSX.Element {
@@ -432,7 +543,20 @@ function CandidateRow({
       onKeyDown={handleKeyboardSelect}
     >
       <span className="candidate-title">
-        <strong>{candidate.title}</strong>
+        <span className="candidate-title-line">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!candidate.canClean}
+            aria-label={`选择 ${candidate.title}`}
+            onChange={(event) => {
+              event.stopPropagation()
+              onToggleSelect()
+            }}
+            onClick={(event) => event.stopPropagation()}
+          />
+          <strong>{candidate.title}</strong>
+        </span>
         <small>{candidate.pathPreview}</small>
       </span>
       <SafetyBadge safety={candidate.safety} />
@@ -515,8 +639,8 @@ function CandidateInspector({
           <strong>{formatBytes(candidate.sizeBytes)}</strong>
         </div>
         <div className="detail-item">
-          <span>包含条目</span>
-          <strong>{candidate.itemCount.toLocaleString('zh-CN')}</strong>
+          <span>路径数量</span>
+          <strong>{candidate.pathCount.toLocaleString('zh-CN')}</strong>
         </div>
         <div className="detail-item">
           <span>最近修改</span>
@@ -537,6 +661,14 @@ function CandidateInspector({
         <p>{candidate.reason}</p>
         <span>可能影响</span>
         <p>{candidate.impact}</p>
+        <span>估算来源</span>
+        <p>{formatEstimateSource(candidate.estimateSource)} · 快照 {candidate.pathSnapshotHash.slice(0, 8)}</p>
+        {candidate.blockedReason && (
+          <>
+            <span>为什么不建议清理</span>
+            <p>{candidate.blockedReason}</p>
+          </>
+        )}
       </section>
 
       <div className="inspector-actions">
@@ -607,6 +739,56 @@ function formatBytes(bytes: number): string {
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
   const value = bytes / 1024 ** exponent
   return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
+}
+
+function sortCandidates(
+  candidates: CleanupCandidate[],
+  sortMode: 'size-desc' | 'risk-desc' | 'name-asc'
+): CleanupCandidate[] {
+  const riskScore: Record<SafetyLevel, number> = { discouraged: 3, confirm: 2, safe: 1 }
+  return [...candidates].sort((left, right) => {
+    if (sortMode === 'name-asc') return left.title.localeCompare(right.title)
+    if (sortMode === 'risk-desc') return riskScore[right.safety] - riskScore[left.safety] || right.sizeBytes - left.sizeBytes
+    return right.sizeBytes - left.sizeBytes
+  })
+}
+
+function formatEstimateSource(source: CleanupCandidate['estimateSource']): string {
+  if (source === 'file-stat') return '文件大小'
+  if (source === 'filesystem-walk') return '完整目录统计'
+  if (source === 'partial-filesystem-walk') return '部分目录估算'
+  return '已阻断'
+}
+
+function readCleanupHistory(): Array<{ id: string; at: string; count: number; bytes: number }> {
+  try {
+    const raw = localStorage.getItem('mac-cleaner-cleanup-history')
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.slice(0, 10) : []
+  } catch {
+    return []
+  }
+}
+
+function recordCleanupHistory(
+  result: CleanupResult,
+  setCleanupHistory: (updater: (current: Array<{ id: string; at: string; count: number; bytes: number }>) => Array<{ id: string; at: string; count: number; bytes: number }>) => void
+): void {
+  if (!result.movedToTrash) return
+  setCleanupHistory((current) => {
+    const next = [
+      {
+        id: `${Date.now()}`,
+        at: new Date().toISOString(),
+        count: result.successCount,
+        bytes: result.cleanedBytes
+      },
+      ...current
+    ].slice(0, 10)
+    localStorage.setItem('mac-cleaner-cleanup-history', JSON.stringify(next))
+    return next
+  })
 }
 
 function formatError(error: unknown): string {

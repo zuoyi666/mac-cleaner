@@ -35,3 +35,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Electron smoke test
+        run: npm run smoke:electron
+
+      - name: Audit
+        run: npm audit --audit-level=high
+
+      - name: Electron packaging dry-run
+        run: npm run release:dry-run

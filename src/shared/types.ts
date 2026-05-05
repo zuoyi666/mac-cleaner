@@ -1,5 +1,7 @@
 export type SafetyLevel = 'safe' | 'confirm' | 'discouraged'
 
+export type EstimateSource = 'file-stat' | 'filesystem-walk' | 'partial-filesystem-walk' | 'blocked'
+
 export type CleanupKind =
   | 'cache'
   | 'log'
@@ -27,6 +29,7 @@ export interface CategorySummary {
 
 export interface CleanupCandidate {
   id: string
+  scanId: string
   title: string
   categoryId: string
   categoryName: string
@@ -35,12 +38,17 @@ export interface CleanupCandidate {
   canClean: boolean
   sizeBytes: number
   itemCount: number
+  pathCount: number
   pathPreview: string
+  pathSamples: string[]
   pathToken: string
+  pathSnapshotHash: string
+  estimateSource: EstimateSource
   reason: string
   impact: string
   actionLabel: string
   lastModified?: string
+  blockedReason?: string
 }
 
 export interface ScanIssue {
@@ -64,6 +72,7 @@ export interface DiskSummary {
 }
 
 export interface ScanSummary {
+  scanId: string
   scannedAt: string
   homeDir: string
   disk: DiskSummary
@@ -75,14 +84,20 @@ export interface ScanSummary {
 }
 
 export interface ScanProgress {
-  stage: 'starting' | 'scanning' | 'measuring' | 'done'
+  scanId?: string
+  stage: 'starting' | 'scanning' | 'measuring' | 'cancelled' | 'done'
   currentPath?: string
   message: string
+  percent?: number
+  scannedEntries?: number
+  measuredBytes?: number
 }
 
 export interface CleanupPreview {
-  candidateId: string
+  candidateIds: string[]
   confirmationId: string
+  scanId: string
+  pathSnapshotHash: string
   title: string
   totalBytes: number
   pathCount: number
@@ -93,22 +108,25 @@ export interface CleanupPreview {
 }
 
 export interface CleanupFailure {
+  candidateId?: string
   path: string
   error: string
 }
 
 export interface CleanupResult {
-  candidateId: string
+  candidateIds: string[]
   cleanedBytes: number
   successCount: number
   failed: CleanupFailure[]
   movedToTrash: boolean
+  needsRescan: boolean
 }
 
 export interface MacCleanerApi {
   scan(): Promise<ScanSummary>
-  cleanupPreview(candidateId: string): Promise<CleanupPreview>
-  moveToTrash(candidateId: string, confirmationId: string): Promise<CleanupResult>
+  cancelScan(): Promise<void>
+  cleanupPreview(candidateIds: string[]): Promise<CleanupPreview>
+  moveToTrash(candidateIds: string[], confirmationId: string): Promise<CleanupResult>
   revealPath(pathToken: string): Promise<void>
   onScanProgress(listener: (progress: ScanProgress) => void): () => void
 }

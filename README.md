@@ -1,13 +1,15 @@
 # Mac Cleaner
 
-Mac Cleaner is a local, visual macOS storage cleanup assistant built with Electron, React, and TypeScript. It scans low-risk user-level storage locations, explains what each cleanup candidate means, and only moves files to Trash after an explicit second confirmation.
+Mac Cleaner is a free, open-source, local visual macOS storage cleanup assistant built with Electron, React, and TypeScript. It scans low-risk user-level storage locations, explains what each cleanup candidate means, and only moves files to Trash after an explicit second confirmation.
 
 ## Safety Model
 
 - No automatic deletion.
 - No permanent deletion.
 - No administrator privilege escalation.
+- No telemetry, cloud sync, account system, or background cleanup task.
 - Cleanup actions only accept candidate IDs produced by the scanner, never arbitrary paths from the renderer.
+- Cleanup confirmations are bound to the scan ID and path snapshot shown in the preview.
 - Confirmed cleanup uses macOS Trash through Electron `shell.trashItem`.
 - Inaccessible paths, symbolic links, and paths outside the fixed allowlist are skipped or blocked.
 
@@ -19,7 +21,7 @@ The first release intentionally keeps scope conservative:
 - `~/Library/Logs`
 - `~/Library/Logs/DiagnosticReports`
 - `~/Library/Logs/CrashReporter`
-- `~/Library/HTTPStorages`
+- `~/Library/HTTPStorages` (requires confirmation because it can include cookies, sessions, or site data)
 - `~/Library/Saved Application State`
 - old installer/archive files in `~/Downloads`
 - `~/.Trash` size is reported only; the app does not empty Trash
@@ -56,12 +58,25 @@ Run checks:
 npm run typecheck
 npm test
 npm run build
+npm run smoke:electron
 npm audit
+```
+
+Create an unsigned local development app bundle:
+
+```bash
+npm run package:dir
+```
+
+Create unsigned macOS release artifacts locally:
+
+```bash
+npm run dist:mac
 ```
 
 ## Release Status
 
-`v0.1.0` is a local development release. It does not include a signed `.app` or `.dmg` installer yet.
+`v0.1.0` is a local development release. Current builds are unsigned development builds; signing and Apple notarization are intentionally left for a later release. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an Electron packaging dry-run.
 
 ## Versioning
 

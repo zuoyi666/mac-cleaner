@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let currentScanRun: ScanRun | null = null
+let activeScanAbortController: AbortController | null = null
 
 const cleanupManager = createCleanupManager(
   {
@@ -41,7 +42,7 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -54,6 +55,11 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers()
+  if (process.env.MAC_CLEANER_SMOKE_TEST === '1') {
+    app.exit(0)
+    return
+  }
+
   createWindow()
 
   app.on('activate', () => {
@@ -67,27 +73,72 @@ app.on('window-all-closed', () => {
 
 function registerIpcHandlers(): void {
   ipcMain.handle('mac-cleaner:scan', async (event) => {
+    if (activeScanAbortController) {
+      throw new Error('已有扫描正在进行，请先取消或等待完成。')
+    }
+    const abortController = new AbortController()
+    activeScanAbortController = abortController
+
     const emitProgress = (progress: ScanProgress): void => {
       event.sender.send('mac-cleaner:scan-progress', progress)
     }
 
-    currentScanRun = await scanStorage({ onProgress: emitProgress })
-    return currentScanRun.summary
+    try {
+      currentScanRun = await scanStorage({ signal: abortController.signal, onProgress: emitProgress })
+      return currentScanRun.summary
+    } catch (error) {
+      if (isAbortError(error)) {
+        emitProgress({ stage: 'cancelled', message: '扫描已取消' })
+        throw new Error('扫描已取消。')
+      }
+      throw error
+    } finally {
+      if (activeScanAbortController === abortController) {
+        activeScanAbortController = null
+      }
+    }
   })
 
-  ipcMain.handle('mac-cleaner:cleanup-preview', (_event, candidateId: string) => {
-    return cleanupManager.cleanupPreview(candidateId)
+  ipcMain.handle('mac-cleaner:cancel-scan', async () => {
+    activeScanAbortController?.abort()
   })
 
-  ipcMain.handle('mac-cleaner:move-to-trash', (_event, candidateId: string, confirmationId: string) => {
-    return cleanupManager.moveToTrash(candidateId, confirmationId)
+  ipcMain.handle('mac-cleaner:cleanup-preview', (_event, candidateIds: unknown) => {
+    return cleanupManager.cleanupPreview(validateCandidateIds(candidateIds))
   })
 
-  ipcMain.handle('mac-cleaner:reveal-path', async (_event, pathToken: string) => {
+  ipcMain.handle('mac-cleaner:move-to-trash', (_event, candidateIds: unknown, confirmationId: unknown) => {
+    return cleanupManager.moveToTrash(validateCandidateIds(candidateIds), validateString(confirmationId, 'confirmationId'))
+  })
+
+  ipcMain.handle('mac-cleaner:reveal-path', async (_event, pathTokenInput: unknown) => {
+    const pathToken = validateString(pathTokenInput, 'pathToken')
     const targetPath = currentScanRun?.pathTokens.get(pathToken)
     if (!targetPath) {
       throw new Error('路径令牌已失效，请重新扫描。')
     }
     shell.showItemInFolder(targetPath)
   })
+}
+
+function validateString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 200) {
+    throw new Error(`无效的 ${fieldName} 参数。`)
+  }
+  return value
+}
+
+function validateCandidateIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('无效的 candidateIds 参数。')
+  }
+  const candidateIds = [...new Set(value.map((candidateId) => validateString(candidateId, 'candidateId')))]
+  if (!candidateIds.length || candidateIds.length > 100) {
+    throw new Error('清理项目数量无效。')
+  }
+  return candidateIds
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
 }

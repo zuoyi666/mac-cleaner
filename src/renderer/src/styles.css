@@ -41,7 +41,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -187,6 +188,11 @@ button {
   border-radius: 8px;
 }
 
+.trash-card > div {
+  flex: 1;
+  min-width: 0;
+}
+
 .trash-card span,
 .sidebar-footer p {
   color: var(--muted);
@@ -198,6 +204,39 @@ button {
   display: block;
   margin-top: 1px;
   font-size: 15px;
+}
+
+.trash-open-button {
+  flex: 0 0 30px;
+  width: 30px;
+  min-height: 30px;
+}
+
+.settings-card,
+.history-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.settings-card strong,
+.history-card strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.settings-card span,
+.history-card span {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-footer p {
@@ -496,6 +535,31 @@ h1 {
   color: var(--safe);
 }
 
+.issue-details {
+  color: var(--confirm);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.issue-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+}
+
+.issue-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.issue-details p {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(650px, 1fr) 340px;
@@ -517,6 +581,10 @@ h1 {
   justify-content: space-between;
   gap: 14px;
   padding: 2px 2px 12px;
+}
+
+.table-toolbar > div:first-child {
+  min-width: 106px;
 }
 
 .table-toolbar span,
@@ -558,6 +626,20 @@ h1 {
   border: 0;
   outline: 0;
   font-size: 13px;
+  line-height: 18px;
+}
+
+.sort-select {
+  width: 132px;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 18px;
 }
 
@@ -612,6 +694,26 @@ h1 {
 .candidate-title {
   display: grid;
   min-width: 0;
+}
+
+.candidate-title-line {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.candidate-title-line input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.candidate-title-line input:disabled {
+  cursor: not-allowed;
 }
 
 .candidate-title strong,
@@ -1099,7 +1201,8 @@ h1 {
     flex-direction: column;
   }
 
-  .search-box {
+  .search-box,
+  .sort-select {
     width: 100%;
   }
 
