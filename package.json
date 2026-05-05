@@ -1,6 +1,6 @@
 {
   "name": "mac-cleaner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local visual macOS storage cleanup assistant.",
   "author": "zuoyi666",
   "license": "MIT",
@@ -23,14 +23,17 @@
   ],
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "tsc --noEmit && electron-vite build",
+    "icon:build": "node scripts/build-icon.mjs",
+    "build": "npm run icon:build && tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "smoke:electron": "MAC_CLEANER_SMOKE_TEST=1 electron out/main/index.js",
-    "package:dir": "npm run build && electron-builder --mac --dir --publish=never",
-    "dist:mac": "npm run build && electron-builder --mac --publish=never",
-    "release:dry-run": "electron-builder --mac --dir --publish=never"
+    "package:dir": "npm run build && electron-builder --mac --dir --publish=never -c.mac.identity=null -c.mac.notarize=false",
+    "dist:mac": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null -c.mac.notarize=false",
+    "dist:mac:signed": "npm run release:mac:preflight && npm run build && electron-builder --mac --publish=never",
+    "release:dry-run": "npm run icon:build && electron-builder --mac --dir --publish=never -c.mac.identity=null -c.mac.notarize=false",
+    "release:mac:preflight": "node scripts/release-mac-preflight.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -67,11 +70,18 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": true,
       "target": [
         "dmg",
         "zip"
-      ],
-      "identity": null
+      ]
+    },
+    "dmg": {
+      "icon": "build/icon.icns"
     }
   }
 }

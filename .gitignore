@@ -5,7 +5,12 @@ node_modules/
 out/
 dist/
 release/
-build/
+build/*
+!build/
+!build/icon-source.png
+!build/icon.icns
+!build/entitlements.mac.plist
+!build/entitlements.mac.inherit.plist
 coverage/
 
 # Logs and reports

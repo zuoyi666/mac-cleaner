@@ -55,6 +55,7 @@ npm run dev
 Run checks:
 
 ```bash
+npm run icon:build
 npm run typecheck
 npm test
 npm run build
@@ -68,15 +69,26 @@ Create an unsigned local development app bundle:
 npm run package:dir
 ```
 
+This produces a double-clickable `.app` with the Mac Cleaner icon, but it is intentionally unsigned for local development.
+
 Create unsigned macOS release artifacts locally:
 
 ```bash
 npm run dist:mac
 ```
 
+Maintainer-only signed and notarized macOS release artifacts:
+
+```bash
+npm run release:mac:preflight
+npm run dist:mac:signed
+```
+
+Signing uses the maintainer's local `Developer ID Application` certificate and Apple notarization credentials. Secrets are not stored in this public repository or in GitHub Actions. See [docs/release-macos.md](docs/release-macos.md) for the full release workflow.
+
 ## Release Status
 
-`v0.1.0` is a local development release. Current builds are unsigned development builds; signing and Apple notarization are intentionally left for a later release. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an Electron packaging dry-run.
+`v0.2.0` adds a custom app icon and maintainer-only macOS signing/notarization workflow. Contributor builds remain unsigned local development builds. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Versioning
 
