@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MacCleanerApp } from '../src/renderer/src/MacCleanerApp'
 import { demoSummary } from '../src/renderer/src/demoApi'
-import type { CleanupPreview, LocalUpdateStatus, MacCleanerApi } from '../src/shared/types'
+import type { CleanupCandidate, CleanupPreview, LocalUpdateStatus, MacCleanerApi, ScanSummary } from '../src/shared/types'
 
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
@@ -23,6 +23,33 @@ const currentUpdateStatus: LocalUpdateStatus = {
   message: '当前本机代码已与 GitHub 同步。',
   messageKey: 'localUpdate.status.current',
   checkedAt: new Date().toISOString()
+}
+
+function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
+  return {
+    scan: vi.fn().mockResolvedValue(demoSummary),
+    cancelScan: vi.fn().mockResolvedValue(undefined),
+    cleanupPreview: vi.fn(),
+    moveToTrash: vi.fn(),
+    revealPath: vi.fn().mockResolvedValue(undefined),
+    checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
+    runLocalSourceUpdate: vi.fn().mockResolvedValue({
+      updated: false,
+      previousVersion: '0.2.0',
+      currentVersion: '0.2.0',
+      installedPath: currentUpdateStatus.installTarget,
+      needsRelaunch: false,
+      message: '当前已经是最新版本。',
+      messageKey: 'localUpdate.result.noUpdate'
+    }),
+    configureLocalUpdate: vi.fn().mockResolvedValue({
+      repoPath: currentUpdateStatus.repoPath,
+      installTarget: currentUpdateStatus.installTarget
+    }),
+    onScanProgress: vi.fn(() => () => undefined),
+    onLocalUpdateProgress: vi.fn(() => () => undefined),
+    ...overrides
+  }
 }
 
 describe('MacCleanerApp', () => {
@@ -83,6 +110,10 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
     expect(await screen.findAllByText('安全可清理')).not.toHaveLength(0)
     expect(screen.getAllByText('需确认')).not.toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
+    expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
+    expect(await screen.findByText('已请求 Finder 显示该位置。')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
@@ -149,6 +180,88 @@ describe('MacCleanerApp', () => {
 
     expect(api.cleanupPreview).toHaveBeenCalledWith(expect.arrayContaining(candidates.map((candidate) => candidate.id)), 'zh-CN')
     expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
+  })
+
+  it('surfaces Finder reveal failures instead of doing a silent no-op', async () => {
+    const user = userEvent.setup()
+    const firstCandidate = demoSummary.candidates[0]
+    const api = makeApi({
+      revealPath: vi.fn().mockRejectedValue(new Error('Finder 无法显示该位置'))
+    })
+
+    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
+
+    await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
+
+    expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
+    expect(await screen.findByText('Finder 无法显示该位置')).toBeInTheDocument()
+  })
+
+  it('marks permission-blocked items as not recommended without requesting access', async () => {
+    const blockedCandidate: CleanupCandidate = {
+      ...demoSummary.candidates[0],
+      id: 'blocked-private-cache',
+      title: '受限目录',
+      categoryId: 'blocked',
+      categoryName: '权限受限目录',
+      categoryNameKey: undefined,
+      kind: 'blocked',
+      safety: 'discouraged',
+      canClean: false,
+      sizeBytes: 0,
+      itemCount: 0,
+      pathCount: 0,
+      pathPreview: '~/Library/Private',
+      pathSamples: ['~/Library/Private'],
+      pathToken: 'blocked-token',
+      pathSnapshotHash: 'blocked-hash',
+      estimateSource: 'blocked',
+      reason: '权限状态无法确认。',
+      reasonKey: undefined,
+      impact: '应用不会尝试绕过 macOS 权限，也不会清理无法确认安全性的路径。',
+      impactKey: 'candidate.blocked.impact',
+      actionLabel: '不可清理',
+      actionLabelKey: 'candidate.blocked.action',
+      blockedReason: '无法访问该目录：EPERM',
+      blockedReasonKey: 'blocked.cannotAccessDir',
+      blockedReasonParams: { error: 'EPERM' }
+    }
+    const blockedSummary: ScanSummary = {
+      ...demoSummary,
+      totalCleanableBytes: 0,
+      categories: [
+        {
+          id: 'blocked',
+          name: '权限受限目录',
+          description: '无法确认安全性的目录',
+          sizeBytes: 0,
+          candidateCount: 1,
+          safetyBreakdown: { safe: 0, confirm: 0, discouraged: 1 }
+        }
+      ],
+      candidates: [blockedCandidate],
+      issues: [
+        {
+          id: 'blocked-issue',
+          path: '~/Library/Private',
+          message: '无法访问：EPERM',
+          messageKey: 'issue.cannotAccess',
+          messageParams: { error: 'EPERM' },
+          severity: 'warning'
+        }
+      ]
+    }
+
+    render(<MacCleanerApp api={makeApi()} initialSummary={blockedSummary} />)
+    await screen.findByText('已是最新')
+
+    expect(screen.getAllByText('不建议清理')).not.toHaveLength(0)
+    expect(screen.getByText('权限与安全边界')).toBeInTheDocument()
+    expect(screen.getByText(/不会申请管理员权限/)).toBeInTheDocument()
+    expect(screen.getByText(/不会进入自动清理流程/)).toBeInTheDocument()
+    screen.getAllByRole('button', { name: /不可清理/ }).forEach((button) => {
+      expect(button).toBeDisabled()
+    })
   })
 
   it('switches the current UI to English without rescanning', async () => {

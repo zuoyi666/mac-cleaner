@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Clock3,
   DownloadCloud,
-  ExternalLink,
   FileArchive,
   FolderOpen,
   Gauge,
@@ -97,6 +96,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [isCleaning, setIsCleaning] = useState(false)
   const [result, setResult] = useState<CleanupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [localUpdateStatus, setLocalUpdateStatus] = useState<LocalUpdateStatus | null>(null)
   const [localUpdateProgress, setLocalUpdateProgress] = useState<LocalUpdateProgress | null>(null)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
@@ -172,6 +172,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   async function runScan(): Promise<void> {
     setIsScanning(true)
     setError(null)
+    setNotice(null)
     setResult(null)
     setProgress({ stage: 'starting', message: t(language, 'progress.prepare'), messageKey: 'progress.prepare' })
 
@@ -198,6 +199,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   async function openCleanupPreview(candidateIds: string[]): Promise<void> {
     setError(null)
+    setNotice(null)
     setResult(null)
     try {
       setPreview(await macCleaner.cleanupPreview(candidateIds, language))
@@ -267,17 +269,26 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   async function reveal(candidate: CleanupCandidate): Promise<void> {
     try {
       await macCleaner.revealPath(candidate.pathToken)
+      setError(null)
+      setNotice(t(language, 'ui.revealOpened'))
     } catch (revealError) {
+      setNotice(null)
       setError(formatError(revealError))
     }
   }
 
   async function revealTrash(): Promise<void> {
     const trashToken = summary?.trash.pathToken
-    if (!trashToken) return
+    if (!trashToken) {
+      setNotice(t(language, 'ui.revealUnavailable'))
+      return
+    }
     try {
       await macCleaner.revealPath(trashToken)
+      setError(null)
+      setNotice(t(language, 'ui.revealOpened'))
     } catch (revealError) {
+      setNotice(null)
       setError(formatError(revealError))
     }
   }
@@ -360,10 +371,11 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             <button
               className="icon-button trash-open-button"
               title={t(language, 'ui.openTrashTitle')}
+              aria-label={t(language, 'ui.openTrashTitle')}
               disabled={!summary?.trash.pathToken}
               onClick={revealTrash}
             >
-              <ExternalLink size={14} />
+              <FolderOpen size={14} />
             </button>
           </div>
           <p>{t(language, 'ui.trashPolicy')}</p>
@@ -511,6 +523,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 {summary.issues.slice(0, 6).map((issue) => (
                   <p key={issue.id}>{localizeIssue(issue, language)} · {issue.path}</p>
                 ))}
+                <div className="permission-note">
+                  <ShieldCheck size={15} />
+                  <span>{t(language, 'ui.permissionIssueNote')}</span>
+                </div>
               </details>
             ) : (
               <div className="issue-line muted">
@@ -524,36 +540,55 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         <section className="content-grid">
           <div className="candidate-panel">
             <div className="table-toolbar">
-              <div>
+              <div className="toolbar-summary">
                 <span>{t(language, 'ui.cleanupCandidates')}</span>
                 <strong>{t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })}</strong>
               </div>
-              <label className="search-box">
-                <Search size={16} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, 'ui.searchPlaceholder')} />
-              </label>
-              <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
-                <option value="size-desc">{t(language, 'ui.sortSize')}</option>
-                <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
-                <option value="name-asc">{t(language, 'ui.sortName')}</option>
-              </select>
-              <button className="secondary-button" onClick={toggleAllVisible} disabled={!filteredCandidates.some((candidate) => candidate.canClean)}>
-                {selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}
-              </button>
-              <button
-                className="primary-button danger"
-                onClick={() => openCleanupPreview(selectedCleanableIds)}
-                disabled={!selectedCleanableIds.length}
-              >
-                <Trash2 size={16} />
-                {t(language, 'ui.batchConfirm', { count: selectedCleanableIds.length.toLocaleString(language) })}
-              </button>
+              <div className="toolbar-controls">
+                <label className="search-box">
+                  <Search size={16} />
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, 'ui.searchPlaceholder')} />
+                </label>
+                <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+                  <option value="size-desc">{t(language, 'ui.sortSize')}</option>
+                  <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
+                  <option value="name-asc">{t(language, 'ui.sortName')}</option>
+                </select>
+                <div className="toolbar-actions">
+                  <button
+                    className="secondary-button compact-action"
+                    onClick={toggleAllVisible}
+                    disabled={!filteredCandidates.some((candidate) => candidate.canClean)}
+                  >
+                    <CheckCircle2 size={15} />
+                    <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
+                  </button>
+                  <button
+                    className="primary-button danger compact-action batch-action"
+                    onClick={() => openCleanupPreview(selectedCleanableIds)}
+                    disabled={!selectedCleanableIds.length}
+                  >
+                    <Trash2 size={15} />
+                    <span>{t(language, 'ui.batchConfirmAction')}</span>
+                    <strong className="batch-count-pill">
+                      {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
+                    </strong>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {error && (
               <div className="message error-message">
                 <AlertTriangle size={16} />
                 <span>{error}</span>
+              </div>
+            )}
+
+            {notice && (
+              <div className="message info-message">
+                <Info size={16} />
+                <span>{notice}</span>
               </div>
             )}
 
@@ -714,12 +749,13 @@ function CandidateRow({
         <button
           className="icon-button"
           title={t(language, 'ui.revealInFinder')}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${candidate.title}`}
           onClick={(event) => {
             event.stopPropagation()
             onReveal()
           }}
         >
-          <ExternalLink size={15} />
+          <FolderOpen size={15} />
         </button>
         <button
           className="cleanup-button row-cleanup-button"
@@ -811,6 +847,16 @@ function CandidateInspector({
         </div>
         <p>{t(language, meta.descriptionKey)}</p>
       </section>
+
+      {candidate.safety === 'discouraged' && (
+        <section className="permission-policy-box">
+          <div>
+            <ShieldCheck size={17} />
+            <strong>{t(language, 'ui.permissionPolicyTitle')}</strong>
+          </div>
+          <p>{t(language, 'ui.permissionPolicyText')}</p>
+        </section>
+      )}
 
       <section className="impact-box">
         <span>{t(language, 'ui.whyCleanable')}</span>
