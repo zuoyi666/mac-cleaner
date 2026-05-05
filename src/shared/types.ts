@@ -1,5 +1,9 @@
 export type SafetyLevel = 'safe' | 'confirm' | 'discouraged'
 
+export type AppLanguage = 'zh-CN' | 'en-US'
+
+export type I18nParams = Record<string, string | number>
+
 export type EstimateSource = 'file-stat' | 'filesystem-walk' | 'partial-filesystem-walk' | 'blocked'
 
 export type CleanupKind =
@@ -21,7 +25,9 @@ export interface SafetyBreakdown {
 export interface CategorySummary {
   id: string
   name: string
+  nameKey?: string
   description: string
+  descriptionKey?: string
   sizeBytes: number
   candidateCount: number
   safetyBreakdown: SafetyBreakdown
@@ -33,6 +39,7 @@ export interface CleanupCandidate {
   title: string
   categoryId: string
   categoryName: string
+  categoryNameKey?: string
   kind: CleanupKind
   safety: SafetyLevel
   canClean: boolean
@@ -45,16 +52,23 @@ export interface CleanupCandidate {
   pathSnapshotHash: string
   estimateSource: EstimateSource
   reason: string
+  reasonKey?: string
   impact: string
+  impactKey?: string
   actionLabel: string
+  actionLabelKey?: string
   lastModified?: string
   blockedReason?: string
+  blockedReasonKey?: string
+  blockedReasonParams?: I18nParams
 }
 
 export interface ScanIssue {
   id: string
   path: string
   message: string
+  messageKey?: string
+  messageParams?: I18nParams
   severity: 'info' | 'warning' | 'error'
 }
 
@@ -88,6 +102,8 @@ export interface ScanProgress {
   stage: 'starting' | 'scanning' | 'measuring' | 'cancelled' | 'done'
   currentPath?: string
   message: string
+  messageKey?: string
+  messageParams?: I18nParams
   percent?: number
   scannedEntries?: number
   measuredBytes?: number
@@ -99,11 +115,15 @@ export interface CleanupPreview {
   scanId: string
   pathSnapshotHash: string
   title: string
+  titleKey?: string
+  titleParams?: I18nParams
   totalBytes: number
   pathCount: number
   pathSamples: string[]
   impact: string
+  impactKey?: string
   warning: string
+  warningKey?: string
   expiresAt: string
 }
 
@@ -111,6 +131,8 @@ export interface CleanupFailure {
   candidateId?: string
   path: string
   error: string
+  errorKey?: string
+  errorParams?: I18nParams
 }
 
 export interface CleanupResult {
@@ -123,10 +145,10 @@ export interface CleanupResult {
 }
 
 export interface MacCleanerApi {
-  scan(): Promise<ScanSummary>
+  scan(language?: AppLanguage): Promise<ScanSummary>
   cancelScan(): Promise<void>
-  cleanupPreview(candidateIds: string[]): Promise<CleanupPreview>
-  moveToTrash(candidateIds: string[], confirmationId: string): Promise<CleanupResult>
+  cleanupPreview(candidateIds: string[], language?: AppLanguage): Promise<CleanupPreview>
+  moveToTrash(candidateIds: string[], confirmationId: string, language?: AppLanguage): Promise<CleanupResult>
   revealPath(pathToken: string): Promise<void>
   onScanProgress(listener: (progress: ScanProgress) => void): () => void
 }

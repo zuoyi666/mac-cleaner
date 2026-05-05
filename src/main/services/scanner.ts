@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type {
+  AppLanguage,
   CategorySummary,
   CleanupCandidate,
   CleanupKind,
@@ -13,6 +14,7 @@ import type {
   ScanSummary,
   TrashSummary
 } from '../../shared/types'
+import { t } from '../../shared/i18n'
 import { compactPathForDisplay } from './pathSafety'
 import { getDiskSummary } from './disk'
 
@@ -35,15 +37,15 @@ const MAX_CANDIDATE_SCAN_MS = 15_000
 
 interface CategoryDefinition {
   id: string
-  name: string
-  description: string
+  nameKey: string
+  descriptionKey: string
   relativePaths: string[]
   excludedRelativePaths?: string[]
   kind: CleanupKind
   safety: SafetyLevel
-  reason: string
-  impact: string
-  actionLabel: string
+  reasonKey: string
+  impactKey: string
+  actionLabelKey: string
   includeFile?: (entryPath: string, stats: Awaited<ReturnType<typeof fs.lstat>>, now: Date) => boolean
   directChildrenOnly?: boolean
 }
@@ -63,6 +65,7 @@ export interface ScanRun {
 export interface ScanOptions {
   homeDir?: string
   now?: Date
+  language?: AppLanguage
   signal?: AbortSignal
   onProgress?: (progress: ScanProgress) => void
 }
@@ -95,75 +98,76 @@ interface MeasureContext {
   onProgress?: (progress: ScanProgress) => void
   scanId: string
   homeDir: string
+  language: AppLanguage
 }
 
 const makeCategories = (): CategoryDefinition[] => [
   {
     id: 'caches',
-    name: '用户缓存',
-    description: '应用可重新生成的用户级缓存',
+    nameKey: 'category.caches.name',
+    descriptionKey: 'category.caches.description',
     relativePaths: ['Library/Caches'],
     kind: 'cache',
     safety: 'safe',
-    reason: '缓存通常可由应用重新生成。',
-    impact: '清理后相关应用首次启动或加载内容时可能变慢，但不会删除核心文档。',
-    actionLabel: '移到废纸篓'
+    reasonKey: 'candidate.cache.reason',
+    impactKey: 'candidate.cache.impact',
+    actionLabelKey: 'candidate.cache.action'
   },
   {
     id: 'logs',
-    name: '日志文件',
-    description: '用户级应用日志和历史运行记录',
+    nameKey: 'category.logs.name',
+    descriptionKey: 'category.logs.description',
     relativePaths: ['Library/Logs'],
     excludedRelativePaths: ['Library/Logs/DiagnosticReports', 'Library/Logs/CrashReporter'],
     kind: 'log',
     safety: 'safe',
-    reason: '历史日志不影响应用正常启动。',
-    impact: '会丢失部分历史排障记录，不影响应用功能。',
-    actionLabel: '移到废纸篓'
+    reasonKey: 'candidate.log.reason',
+    impactKey: 'candidate.log.impact',
+    actionLabelKey: 'candidate.log.action'
   },
   {
     id: 'diagnostics',
-    name: '崩溃与诊断报告',
-    description: '历史崩溃报告和诊断文件',
+    nameKey: 'category.diagnostics.name',
+    descriptionKey: 'category.diagnostics.description',
     relativePaths: ['Library/Logs/DiagnosticReports', 'Library/Logs/CrashReporter'],
     kind: 'diagnostic',
     safety: 'safe',
-    reason: '历史诊断报告只用于回溯问题。',
-    impact: '会减少可供排查旧崩溃的信息，不影响应用运行。',
-    actionLabel: '移到废纸篓'
+    reasonKey: 'candidate.diagnostic.reason',
+    impactKey: 'candidate.diagnostic.impact',
+    actionLabelKey: 'candidate.diagnostic.action'
   },
   {
     id: 'http-storage',
-    name: '网页缓存存储',
-    description: '应用内网页视图的 HTTP 存储缓存',
+    nameKey: 'category.http-storage.name',
+    descriptionKey: 'category.http-storage.description',
     relativePaths: ['Library/HTTPStorages'],
     kind: 'http-storage',
     safety: 'confirm',
-    reason: 'HTTP 存储可能包含应用内网页缓存、cookie 或本地站点数据。',
-    impact: '相关应用可能需要重新登录、重新下载网页资源，或丢失部分网站本地状态。',
-    actionLabel: '确认后移到废纸篓'
+    reasonKey: 'candidate.http-storage.reason',
+    impactKey: 'candidate.http-storage.impact',
+    actionLabelKey: 'candidate.http-storage.action'
   },
   {
     id: 'saved-state',
-    name: '应用保存状态',
-    description: '窗口恢复状态和临时会话外观',
+    nameKey: 'category.saved-state.name',
+    descriptionKey: 'category.saved-state.description',
     relativePaths: ['Library/Saved Application State'],
     kind: 'saved-state',
     safety: 'confirm',
-    reason: '保存状态不属于用户文档，但可能影响应用重新打开时的窗口恢复。',
-    impact: '清理后应用可能无法恢复上次窗口位置、标签页或临时界面状态。',
-    actionLabel: '确认后移到废纸篓'
+    reasonKey: 'candidate.saved-state.reason',
+    impactKey: 'candidate.saved-state.impact',
+    actionLabelKey: 'candidate.saved-state.action'
   },
   {
     id: 'downloads',
-    name: '下载目录旧安装包',
-    description: 'Downloads 中超过 30 天的安装包和压缩包',
+    nameKey: 'category.downloads.name',
+    descriptionKey: 'category.downloads.description',
     relativePaths: ['Downloads'],
     kind: 'download-archive',
     safety: 'confirm',
-    reason: '旧安装包和压缩包通常可再次下载，但可能仍被你需要。',
-    impact: '会移走你下载过的安装包或归档文件；请先确认不是仍要保留的文件。',
-    actionLabel: '确认后移到废纸篓',
+    reasonKey: 'candidate.download-archive.reason',
+    impactKey: 'candidate.download-archive.impact',
+    actionLabelKey: 'candidate.download-archive.action',
     directChildrenOnly: true,
     includeFile: (entryPath, stats, now) => {
       if (!stats.isFile()) return false
@@ -177,6 +181,7 @@ const makeCategories = (): CategoryDefinition[] => [
 export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   const homeDir = options.homeDir ?? os.homedir()
   const now = options.now ?? new Date()
+  const language = options.language ?? 'zh-CN'
   const scanId = crypto.randomUUID()
   const issues: ScanIssue[] = []
   const candidates = new Map<string, InternalCandidate>()
@@ -190,7 +195,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   options.onProgress?.({
     scanId,
     stage: 'starting',
-    message: '准备扫描用户级可清理位置',
+    message: t(language, 'progress.starting'),
+    messageKey: 'progress.starting',
     percent: 0,
     scannedEntries: 0,
     measuredBytes: 0
@@ -209,7 +215,9 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
         scanId,
         stage: 'scanning',
         currentPath: compactPathForDisplay(root, homeDir),
-        message: `正在扫描${category.name}`,
+        message: t(language, 'progress.scanningCategory', { categoryName: t(language, category.nameKey) }),
+        messageKey: 'progress.scanningCategory',
+        messageParams: { categoryName: t(language, category.nameKey) },
         percent: basePercent,
         scannedEntries: progress.scannedEntries,
         measuredBytes: progress.measuredBytes
@@ -228,7 +236,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
           progress,
           onProgress: options.onProgress,
           scanId,
-          homeDir
+          homeDir,
+          language
         }
       )
       categoryCandidates.push(...discovered)
@@ -239,7 +248,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       pathTokens.set(candidate.pathToken, candidate.paths[0])
     }
 
-    categories.push(summarizeCategory(category, categoryCandidates))
+    categories.push(summarizeCategory(category, categoryCandidates, language))
   }
 
   const trash = await scanTrash(homeDir, issues, {
@@ -249,7 +258,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     progress,
     onProgress: options.onProgress,
     scanId,
-    homeDir
+    homeDir,
+    language
   })
   if (trash.pathToken) {
     pathTokens.set(trash.pathToken, path.join(homeDir, '.Trash'))
@@ -264,7 +274,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   options.onProgress?.({
     scanId,
     stage: 'done',
-    message: '扫描完成',
+    message: t(language, 'progress.done'),
+    messageKey: 'progress.done',
     percent: 100,
     scannedEntries: progress.scannedEntries,
     measuredBytes: progress.measuredBytes
@@ -301,14 +312,14 @@ async function discoverCandidatesForRoot(
     rootStats = await fs.lstat(root)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      issues.push(makeIssue(root, `无法访问：${formatError(error)}`, 'warning'))
-      return [makeBlockedCandidate(category, root, homeDir, `无法访问该目录：${formatError(error)}`, ctx.scanId)]
+      issues.push(makeIssue(root, 'issue.cannotAccess', 'warning', ctx.language, { error: formatError(error) }))
+      return [makeBlockedCandidate(category, root, homeDir, 'blocked.cannotAccessDir', { error: formatError(error) }, ctx)]
     }
     return []
   }
 
   if (rootStats.isSymbolicLink()) {
-    issues.push(makeIssue(root, '跳过符号链接，避免跨出安全扫描范围。', 'info'))
+    issues.push(makeIssue(root, 'issue.skipSymlinkRoot', 'info', ctx.language))
     return []
   }
 
@@ -318,8 +329,8 @@ async function discoverCandidatesForRoot(
   try {
     entries = await fs.readdir(root)
   } catch (error) {
-    issues.push(makeIssue(root, `无法读取目录：${formatError(error)}`, 'warning'))
-    return [makeBlockedCandidate(category, root, homeDir, `无法读取该目录：${formatError(error)}`, ctx.scanId)]
+    issues.push(makeIssue(root, 'issue.cannotReadDir', 'warning', ctx.language, { error: formatError(error) }))
+    return [makeBlockedCandidate(category, root, homeDir, 'blocked.cannotReadDir', { error: formatError(error) }, ctx)]
   }
 
   const candidates: InternalCandidate[] = []
@@ -335,12 +346,12 @@ async function discoverCandidatesForRoot(
     try {
       stats = await fs.lstat(entryPath)
     } catch (error) {
-      issues.push(makeIssue(entryPath, `无法读取条目：${formatError(error)}`, 'warning'))
+      issues.push(makeIssue(entryPath, 'issue.cannotReadEntry', 'warning', ctx.language, { error: formatError(error) }))
       return
     }
 
     if (stats.isSymbolicLink()) {
-      issues.push(makeIssue(entryPath, '跳过符号链接。', 'info'))
+      issues.push(makeIssue(entryPath, 'issue.skipSymlink', 'info', ctx.language))
       return
     }
 
@@ -356,7 +367,9 @@ async function discoverCandidatesForRoot(
       scanId: ctx.scanId,
       stage: 'measuring',
       currentPath: compactPathForDisplay(entryPath, homeDir),
-      message: `正在统计${entry}`,
+      message: t(ctx.language, 'progress.measuringEntry', { entryName: entry }),
+      messageKey: 'progress.measuringEntry',
+      messageParams: { entryName: entry },
       scannedEntries: ctx.progress.scannedEntries,
       measuredBytes: ctx.progress.measuredBytes
     })
@@ -373,7 +386,7 @@ async function discoverCandidatesForRoot(
       return
     }
 
-    candidates.push(makeCandidate(category, entryPath, root, homeDir, measured, ctx.scanId))
+    candidates.push(makeCandidate(category, entryPath, root, homeDir, measured, ctx))
   })
 
   return candidates.sort((a, b) => b.sizeBytes - a.sizeBytes)
@@ -382,7 +395,7 @@ async function discoverCandidatesForRoot(
 async function measurePath(targetPath: string, ctx: MeasureContext): Promise<MeasuredPath> {
   throwIfAborted(ctx.signal)
   if (Date.now() > ctx.deadlineMs) {
-    ctx.issues.push(makeIssue(targetPath, '统计耗时过长，已使用部分估算并跳过剩余内容。', 'warning'))
+    ctx.issues.push(makeIssue(targetPath, 'issue.measureTimeout', 'warning', ctx.language))
     return { sizeBytes: 0, itemCount: 0, pathCount: 0, estimateSource: 'partial-filesystem-walk', truncated: true }
   }
 
@@ -390,12 +403,12 @@ async function measurePath(targetPath: string, ctx: MeasureContext): Promise<Mea
   try {
     stats = await fs.lstat(targetPath)
   } catch (error) {
-    ctx.issues.push(makeIssue(targetPath, `无法统计：${formatError(error)}`, 'warning'))
+    ctx.issues.push(makeIssue(targetPath, 'issue.cannotMeasure', 'warning', ctx.language, { error: formatError(error) }))
     return { sizeBytes: 0, itemCount: 0, pathCount: 0, estimateSource: 'partial-filesystem-walk' }
   }
 
   if (stats.isSymbolicLink()) {
-    ctx.issues.push(makeIssue(targetPath, '跳过符号链接。', 'info'))
+    ctx.issues.push(makeIssue(targetPath, 'issue.skipSymlink', 'info', ctx.language))
     return { sizeBytes: 0, itemCount: 0, pathCount: 0, estimateSource: 'partial-filesystem-walk' }
   }
 
@@ -413,7 +426,7 @@ async function measurePath(targetPath: string, ctx: MeasureContext): Promise<Mea
   try {
     entries = await fs.readdir(targetPath)
   } catch (error) {
-    ctx.issues.push(makeIssue(targetPath, `无法读取目录：${formatError(error)}`, 'warning'))
+    ctx.issues.push(makeIssue(targetPath, 'issue.cannotReadDir', 'warning', ctx.language, { error: formatError(error) }))
     return {
       sizeBytes: 0,
       itemCount: 0,
@@ -481,7 +494,7 @@ async function scanTrash(homeDir: string, issues: ScanIssue[], ctx: MeasureConte
   } catch (error) {
     if (isAbortError(error)) throw error
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      issues.push(makeIssue(trashPath, `无法统计废纸篓：${formatError(error)}`, 'warning'))
+      issues.push(makeIssue(trashPath, 'issue.cannotStatTrash', 'warning', ctx.language, { error: formatError(error) }))
     }
     return { sizeBytes: 0, itemCount: 0 }
   }
@@ -493,7 +506,7 @@ function makeCandidate(
   allowedRoot: string,
   homeDir: string,
   measured: MeasuredPath,
-  scanId: string
+  ctx: MeasureContext
 ): InternalCandidate {
   const title = path.basename(entryPath)
   const pathSnapshot: PathSnapshot = {
@@ -505,10 +518,11 @@ function makeCandidate(
   const pathSnapshotHash = hashPathSnapshots([pathSnapshot])
   return {
     id: stableId(category.id, entryPath),
-    scanId,
+    scanId: ctx.scanId,
     title,
     categoryId: category.id,
-    categoryName: category.name,
+    categoryName: t(ctx.language, category.nameKey),
+    categoryNameKey: category.nameKey,
     kind: category.kind,
     safety: category.safety,
     canClean: category.safety !== 'discouraged',
@@ -520,9 +534,12 @@ function makeCandidate(
     pathToken: crypto.randomUUID(),
     pathSnapshotHash,
     estimateSource: measured.estimateSource,
-    reason: category.reason,
-    impact: category.impact,
-    actionLabel: category.actionLabel,
+    reason: t(ctx.language, category.reasonKey),
+    reasonKey: category.reasonKey,
+    impact: t(ctx.language, category.impactKey),
+    impactKey: category.impactKey,
+    actionLabel: t(ctx.language, category.actionLabelKey),
+    actionLabelKey: category.actionLabelKey,
     lastModified: measured.lastModified?.toISOString(),
     paths: [entryPath],
     allowedRoot,
@@ -534,9 +551,12 @@ function makeBlockedCandidate(
   category: CategoryDefinition,
   root: string,
   homeDir: string,
-  message: string,
-  scanId: string
+  messageKey: string,
+  messageParams: Record<string, string | number>,
+  ctx: MeasureContext
 ): InternalCandidate {
+  const categoryName = t(ctx.language, category.nameKey)
+  const message = t(ctx.language, messageKey, messageParams)
   const pathSnapshot = {
     path: root,
     sizeBytes: 0,
@@ -544,10 +564,11 @@ function makeBlockedCandidate(
   }
   return {
     id: stableId(`${category.id}:blocked`, root),
-    scanId,
-    title: `${category.name}不可访问`,
+    scanId: ctx.scanId,
+    title: t(ctx.language, 'blocked.title', { categoryName }),
     categoryId: category.id,
-    categoryName: category.name,
+    categoryName,
+    categoryNameKey: category.nameKey,
     kind: 'blocked',
     safety: 'discouraged',
     canClean: false,
@@ -560,20 +581,27 @@ function makeBlockedCandidate(
     pathSnapshotHash: hashPathSnapshots([pathSnapshot]),
     estimateSource: 'blocked',
     reason: message,
-    impact: '应用不会尝试绕过 macOS 权限，也不会清理无法确认安全性的路径。',
-    actionLabel: '不可清理',
+    reasonKey: messageKey,
+    impact: t(ctx.language, 'candidate.blocked.impact'),
+    impactKey: 'candidate.blocked.impact',
+    actionLabel: t(ctx.language, 'candidate.blocked.action'),
+    actionLabelKey: 'candidate.blocked.action',
     blockedReason: message,
+    blockedReasonKey: messageKey,
+    blockedReasonParams: messageParams,
     paths: [root],
     allowedRoot: root,
     pathSnapshots: [pathSnapshot]
   }
 }
 
-function summarizeCategory(category: CategoryDefinition, candidates: InternalCandidate[]): CategorySummary {
+function summarizeCategory(category: CategoryDefinition, candidates: InternalCandidate[], language: AppLanguage): CategorySummary {
   return {
     id: category.id,
-    name: category.name,
-    description: category.description,
+    name: t(language, category.nameKey),
+    nameKey: category.nameKey,
+    description: t(language, category.descriptionKey),
+    descriptionKey: category.descriptionKey,
     sizeBytes: candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0),
     candidateCount: candidates.length,
     safetyBreakdown: {
@@ -621,7 +649,7 @@ async function mapWithConcurrency<T>(
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new DOMException('扫描已取消。', 'AbortError')
+    throw new DOMException(t('zh-CN', 'progress.cancelled'), 'AbortError')
   }
 }
 
@@ -634,11 +662,20 @@ function stableId(prefix: string, value: string): string {
   return `${prefix.replace(/[^a-z0-9-]/gi, '-')}-${hash}`
 }
 
-function makeIssue(pathName: string, message: string, severity: ScanIssue['severity']): ScanIssue {
+function makeIssue(
+  pathName: string,
+  messageKey: string,
+  severity: ScanIssue['severity'],
+  language: AppLanguage,
+  messageParams: Record<string, string | number> = {}
+): ScanIssue {
+  const message = t(language, messageKey, messageParams)
   return {
     id: stableId('issue', `${pathName}:${message}`),
     path: pathName,
     message,
+    messageKey,
+    messageParams,
     severity
   }
 }

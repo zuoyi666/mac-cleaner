@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ScanProgress } from '../shared/types'
+import type { AppLanguage, ScanProgress } from '../shared/types'
+import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
 import type { ScanRun } from './services/scanner'
 import { scanStorage } from './services/scanner'
@@ -72,9 +73,10 @@ app.on('window-all-closed', () => {
 })
 
 function registerIpcHandlers(): void {
-  ipcMain.handle('mac-cleaner:scan', async (event) => {
+  ipcMain.handle('mac-cleaner:scan', async (event, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
     if (activeScanAbortController) {
-      throw new Error('已有扫描正在进行，请先取消或等待完成。')
+      throw new Error(t(language, 'main.scanAlreadyRunning'))
     }
     const abortController = new AbortController()
     activeScanAbortController = abortController
@@ -84,12 +86,12 @@ function registerIpcHandlers(): void {
     }
 
     try {
-      currentScanRun = await scanStorage({ signal: abortController.signal, onProgress: emitProgress })
+      currentScanRun = await scanStorage({ language, signal: abortController.signal, onProgress: emitProgress })
       return currentScanRun.summary
     } catch (error) {
       if (isAbortError(error)) {
-        emitProgress({ stage: 'cancelled', message: '扫描已取消' })
-        throw new Error('扫描已取消。')
+        emitProgress({ stage: 'cancelled', message: t(language, 'progress.cancelled'), messageKey: 'progress.cancelled' })
+        throw new Error(t(language, 'progress.cancelled'))
       }
       throw error
     } finally {
@@ -103,40 +105,49 @@ function registerIpcHandlers(): void {
     activeScanAbortController?.abort()
   })
 
-  ipcMain.handle('mac-cleaner:cleanup-preview', (_event, candidateIds: unknown) => {
-    return cleanupManager.cleanupPreview(validateCandidateIds(candidateIds))
+  ipcMain.handle('mac-cleaner:cleanup-preview', (_event, candidateIds: unknown, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    return cleanupManager.cleanupPreview(validateCandidateIds(candidateIds, language), language)
   })
 
-  ipcMain.handle('mac-cleaner:move-to-trash', (_event, candidateIds: unknown, confirmationId: unknown) => {
-    return cleanupManager.moveToTrash(validateCandidateIds(candidateIds), validateString(confirmationId, 'confirmationId'))
+  ipcMain.handle('mac-cleaner:move-to-trash', (_event, candidateIds: unknown, confirmationId: unknown, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    return cleanupManager.moveToTrash(validateCandidateIds(candidateIds, language), validateString(confirmationId, 'confirmationId', language), language)
   })
 
   ipcMain.handle('mac-cleaner:reveal-path', async (_event, pathTokenInput: unknown) => {
     const pathToken = validateString(pathTokenInput, 'pathToken')
     const targetPath = currentScanRun?.pathTokens.get(pathToken)
     if (!targetPath) {
-      throw new Error('路径令牌已失效，请重新扫描。')
+      throw new Error(t('zh-CN', 'main.pathTokenExpired'))
     }
     shell.showItemInFolder(targetPath)
   })
 }
 
-function validateString(value: unknown, fieldName: string): string {
+function validateString(value: unknown, fieldName: string, language: AppLanguage = 'zh-CN'): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 200) {
-    throw new Error(`无效的 ${fieldName} 参数。`)
+    throw new Error(t(language, 'main.invalidParam', { fieldName }))
   }
   return value
 }
 
-function validateCandidateIds(value: unknown): string[] {
+function validateCandidateIds(value: unknown, language: AppLanguage = 'zh-CN'): string[] {
   if (!Array.isArray(value)) {
-    throw new Error('无效的 candidateIds 参数。')
+    throw new Error(t(language, 'main.invalidCandidateIds'))
   }
-  const candidateIds = [...new Set(value.map((candidateId) => validateString(candidateId, 'candidateId')))]
+  const candidateIds = [...new Set(value.map((candidateId) => validateString(candidateId, 'candidateId', language)))]
   if (!candidateIds.length || candidateIds.length > 100) {
-    throw new Error('清理项目数量无效。')
+    throw new Error(t(language, 'main.invalidCandidateCount'))
   }
   return candidateIds
+}
+
+function validateLanguage(value: unknown): AppLanguage {
+  if (value === undefined || value === 'zh-CN' || value === 'en-US') {
+    return value ?? 'zh-CN'
+  }
+  throw new Error('Invalid language parameter.')
 }
 
 function isAbortError(error: unknown): boolean {

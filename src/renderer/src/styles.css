@@ -239,6 +239,41 @@ button {
   white-space: nowrap;
 }
 
+.language-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px;
+  background: #e9eef7;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.language-toggle button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 16px;
+}
+
+.language-toggle button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.language-toggle button.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(40, 54, 77, 0.08);
+}
+
 .sidebar-footer p {
   margin: 0;
   padding: 0 4px;

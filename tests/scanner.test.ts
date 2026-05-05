@@ -72,6 +72,22 @@ describe('scanStorage', () => {
     expect(candidate?.impact).toContain('重新登录')
   })
 
+  it('returns English category and candidate text when requested', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'HTTPStorages', 'com.example.webview', 'state.db'), 128)
+
+    const run = await scanStorage({ homeDir, now: fixedNow, language: 'en-US' })
+    const category = run.summary.categories.find((item) => item.id === 'http-storage')
+    const candidate = run.summary.candidates.find((item) => item.categoryId === 'http-storage')
+
+    expect(category?.name).toBe('Web Cache Storage')
+    expect(category?.nameKey).toBe('category.http-storage.name')
+    expect(candidate?.categoryName).toBe('Web Cache Storage')
+    expect(candidate?.reason).toContain('HTTP storage may include')
+    expect(candidate?.impact).toContain('sign in again')
+    expect(candidate?.actionLabel).toBe('Review and Move to Trash')
+  })
+
   it('can abort a scan before touching allowlisted roots', async () => {
     const homeDir = await makeHome()
     const controller = new AbortController()

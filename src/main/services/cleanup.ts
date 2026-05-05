@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
-import type { CleanupPreview, CleanupResult } from '../../shared/types'
+import type { AppLanguage, CleanupPreview, CleanupResult } from '../../shared/types'
+import { t } from '../../shared/i18n'
 import type { InternalCandidate } from './scanner'
 import { isWithinPath } from './pathSafety'
 
@@ -12,8 +13,8 @@ export interface CleanupStore {
 }
 
 export interface CleanupManager {
-  cleanupPreview(candidateIds: string | string[]): CleanupPreview
-  moveToTrash(candidateIds: string | string[], confirmationId: string): Promise<CleanupResult>
+  cleanupPreview(candidateIds: string | string[], language?: AppLanguage): CleanupPreview
+  moveToTrash(candidateIds: string | string[], confirmationId: string, language?: AppLanguage): Promise<CleanupResult>
 }
 
 interface Confirmation {
@@ -30,9 +31,9 @@ export function createCleanupManager(
   const confirmations = new Map<string, Confirmation>()
 
   return {
-    cleanupPreview(candidateIdsInput: string | string[]): CleanupPreview {
-      const candidates = getCleanableCandidates(store, candidateIdsInput)
-      const scanId = assertSingleScan(candidates)
+    cleanupPreview(candidateIdsInput: string | string[], language: AppLanguage = 'zh-CN'): CleanupPreview {
+      const candidates = getCleanableCandidates(store, candidateIdsInput, language)
+      const scanId = assertSingleScan(candidates, language)
       const candidateIds = candidates.map((candidate) => candidate.id)
       const pathSnapshotHash = hashCandidates(candidates)
       const confirmationId = crypto.randomUUID()
@@ -46,18 +47,22 @@ export function createCleanupManager(
         confirmationId,
         scanId,
         pathSnapshotHash,
-        title: candidates.length === 1 ? candidates[0].title : `${candidates.length} 个清理项目`,
+        title: candidates.length === 1 ? candidates[0].title : t(language, 'cleanup.batchTitle', { count: candidates.length }),
+        titleKey: candidates.length === 1 ? undefined : 'cleanup.batchTitle',
+        titleParams: candidates.length === 1 ? undefined : { count: candidates.length },
         totalBytes,
         pathCount: candidates.reduce((sum, candidate) => sum + candidate.pathCount, 0),
         pathSamples,
-        impact: candidates.length === 1 ? candidates[0].impact : summarizeBatchImpact(candidates),
-        warning: '确认后会将这些项目移到废纸篓，不会永久删除。清倒废纸篓前仍可手动恢复。',
+        impact: candidates.length === 1 ? localizedCandidateImpact(candidates[0], language) : summarizeBatchImpact(candidates, language),
+        impactKey: candidates.length === 1 ? candidates[0].impactKey : batchImpactKey(candidates),
+        warning: t(language, 'cleanup.warning'),
+        warningKey: 'cleanup.warning',
         expiresAt: new Date(expiresAt).toISOString()
       }
     },
 
-    async moveToTrash(candidateIdsInput: string | string[], confirmationId: string): Promise<CleanupResult> {
-      const candidates = getCleanableCandidates(store, candidateIdsInput)
+    async moveToTrash(candidateIdsInput: string | string[], confirmationId: string, language: AppLanguage = 'zh-CN'): Promise<CleanupResult> {
+      const candidates = getCleanableCandidates(store, candidateIdsInput, language)
       const candidateIds = candidates.map((candidate) => candidate.id)
       const confirmation = confirmations.get(confirmationId)
 
@@ -65,10 +70,10 @@ export function createCleanupManager(
         !confirmation ||
         !sameIds(confirmation.candidateIds, candidateIds) ||
         confirmation.expiresAt < Date.now() ||
-        confirmation.scanId !== assertSingleScan(candidates) ||
+        confirmation.scanId !== assertSingleScan(candidates, language) ||
         confirmation.pathSnapshotHash !== hashCandidates(candidates)
       ) {
-        throw new Error('清理确认已失效，请重新确认。')
+        throw new Error(t(language, 'cleanup.error.confirmExpired'))
       }
 
       confirmations.delete(confirmationId)
@@ -83,7 +88,12 @@ export function createCleanupManager(
         for (const snapshot of candidate.pathSnapshots) {
           const targetPath = snapshot.path
           if (!isWithinPath(targetPath, candidate.allowedRoot)) {
-            failed.push({ candidateId: candidate.id, path: targetPath, error: '路径超出允许清理范围。' })
+            failed.push({
+              candidateId: candidate.id,
+              path: targetPath,
+              error: t(language, 'cleanup.failure.outsideAllowlist'),
+              errorKey: 'cleanup.failure.outsideAllowlist'
+            })
             candidateSucceeded = false
             continue
           }
@@ -91,12 +101,22 @@ export function createCleanupManager(
           try {
             const stats = await fs.lstat(targetPath)
             if (stats.isSymbolicLink()) {
-              failed.push({ candidateId: candidate.id, path: targetPath, error: '跳过符号链接。' })
+              failed.push({
+                candidateId: candidate.id,
+                path: targetPath,
+                error: t(language, 'cleanup.failure.skipSymlink'),
+                errorKey: 'cleanup.failure.skipSymlink'
+              })
               candidateSucceeded = false
               continue
             }
             if (snapshot.lastModified && stats.mtime.toISOString() !== snapshot.lastModified) {
-              failed.push({ candidateId: candidate.id, path: targetPath, error: '路径在扫描后发生变化，请重新扫描。' })
+              failed.push({
+                candidateId: candidate.id,
+                path: targetPath,
+                error: t(language, 'cleanup.failure.changedAfterScan'),
+                errorKey: 'cleanup.failure.changedAfterScan'
+              })
               candidateSucceeded = false
               continue
             }
@@ -128,35 +148,35 @@ export function createCleanupManager(
   }
 }
 
-function getCleanableCandidates(store: CleanupStore, candidateIdsInput: string | string[]): InternalCandidate[] {
-  const candidateIds = normalizeCandidateIds(candidateIdsInput)
+function getCleanableCandidates(store: CleanupStore, candidateIdsInput: string | string[], language: AppLanguage): InternalCandidate[] {
+  const candidateIds = normalizeCandidateIds(candidateIdsInput, language)
   return candidateIds.map((candidateId) => {
     const candidate = store.getCandidate(candidateId)
     if (!candidate) {
-      throw new Error('未找到该清理项目，请重新扫描。')
+      throw new Error(t(language, 'cleanup.error.notFound'))
     }
 
     if (!candidate.canClean || candidate.safety === 'discouraged') {
-      throw new Error('该项目被标记为不建议清理，不能执行自动清理。')
+      throw new Error(t(language, 'cleanup.error.discouraged'))
     }
 
     return candidate
   })
 }
 
-function normalizeCandidateIds(candidateIdsInput: string | string[]): string[] {
+function normalizeCandidateIds(candidateIdsInput: string | string[], language: AppLanguage): string[] {
   const candidateIds = Array.isArray(candidateIdsInput) ? candidateIdsInput : [candidateIdsInput]
   const normalized = [...new Set(candidateIds.filter((candidateId) => typeof candidateId === 'string' && candidateId.length > 0))]
   if (!normalized.length) {
-    throw new Error('至少需要选择一个清理项目。')
+    throw new Error(t(language, 'cleanup.error.needSelection'))
   }
   return normalized
 }
 
-function assertSingleScan(candidates: InternalCandidate[]): string {
+function assertSingleScan(candidates: InternalCandidate[], language: AppLanguage): string {
   const scanIds = new Set(candidates.map((candidate) => candidate.scanId))
   if (scanIds.size !== 1) {
-    throw new Error('所选项目来自不同扫描结果，请重新扫描后再清理。')
+    throw new Error(t(language, 'cleanup.error.mixedScans'))
   }
   return candidates[0].scanId
 }
@@ -176,12 +196,20 @@ function sameIds(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((id) => right.includes(id))
 }
 
-function summarizeBatchImpact(candidates: InternalCandidate[]): string {
+function localizedCandidateImpact(candidate: InternalCandidate, language: AppLanguage): string {
+  return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
+}
+
+function batchImpactKey(candidates: InternalCandidate[]): string {
   const safetyLabels = new Set(candidates.map((candidate) => candidate.safety))
   if (safetyLabels.has('confirm')) {
-    return '所选项目中包含需要确认的缓存、网页存储或下载归档；可能需要重新登录、重新下载资源或恢复窗口状态。'
+    return 'cleanup.batchImpactConfirm'
   }
-  return '所选项目通常可由应用重新生成；首次重新打开相关应用时可能变慢。'
+  return 'cleanup.batchImpactSafe'
+}
+
+function summarizeBatchImpact(candidates: InternalCandidate[], language: AppLanguage): string {
+  return t(language, batchImpactKey(candidates))
 }
 
 function formatError(error: unknown): string {

@@ -2,12 +2,17 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MacCleanerApp } from '../src/renderer/src/MacCleanerApp'
 import { demoSummary } from '../src/renderer/src/demoApi'
 import type { CleanupPreview, MacCleanerApi } from '../src/shared/types'
 
 describe('MacCleanerApp', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem('mac-cleaner-language', 'zh-CN')
+  })
+
   it('shows scan results and requires confirmation before cleanup', async () => {
     const user = userEvent.setup()
     const firstCandidate = demoSummary.candidates[0]
@@ -47,14 +52,14 @@ describe('MacCleanerApp', () => {
     expect(screen.getAllByText('需确认')).not.toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
-    expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id])
+    expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
     expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
     expect(api.moveToTrash).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: /确认移到废纸篓/ }))
 
     await waitFor(() => {
-      expect(api.moveToTrash).toHaveBeenCalledWith([firstCandidate.id], 'confirm-1')
+      expect(api.moveToTrash).toHaveBeenCalledWith([firstCandidate.id], 'confirm-1', 'zh-CN')
     })
   })
 
@@ -94,7 +99,25 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: /选择可清理项/ }))
     await user.click(screen.getByRole('button', { name: /批量确认/ }))
 
-    expect(api.cleanupPreview).toHaveBeenCalledWith(expect.arrayContaining(candidates.map((candidate) => candidate.id)))
+    expect(api.cleanupPreview).toHaveBeenCalledWith(expect.arrayContaining(candidates.map((candidate) => candidate.id)), 'zh-CN')
     expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
+  })
+
+  it('switches the current UI to English without rescanning', async () => {
+    const user = userEvent.setup()
+    const firstCandidate = demoSummary.candidates[0]
+
+    render(<MacCleanerApp initialSummary={demoSummary} />)
+
+    await user.click(screen.getByRole('button', { name: 'English' }))
+
+    expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
+    expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
+    expect(screen.getAllByText('Review First')).not.toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: `Move to Trash: ${firstCandidate.title}` }))
+
+    expect(await screen.findByRole('dialog', { name: /Confirm Move to Trash/ })).toBeInTheDocument()
+    expect(screen.getByText(/After confirmation these items will be moved to Trash/)).toBeInTheDocument()
   })
 })

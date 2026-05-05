@@ -32,6 +32,10 @@ Each cleanup item is labelled as:
 - `需确认`: user-visible or potentially useful generated/downloaded data
 - `不建议清理`: blocked, inaccessible, unsupported, or unclear-risk data
 
+## Language
+
+The interface supports Chinese and English. First launch follows the system/browser language, and the left sidebar `Local Settings` language switch stores the preference locally in `localStorage`. The preference never leaves the device.
+
 ## Development
 
 Requirements:

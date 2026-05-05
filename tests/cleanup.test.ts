@@ -116,6 +116,19 @@ describe('createCleanupManager', () => {
     expect(store.getCandidate(first.id)).toBeUndefined()
     expect(store.getCandidate(second.id)).toBe(second)
   })
+
+  it('localizes cleanup preview and validation errors in English', async () => {
+    const { candidate, store } = await makeStoreCandidate()
+    const manager = createCleanupManager(store, vi.fn(async () => undefined))
+
+    const preview = manager.cleanupPreview([candidate.id], 'en-US')
+
+    expect(preview.impact).toContain('related app may start')
+    expect(preview.warning).toContain('moved to Trash')
+    await expect(manager.moveToTrash([candidate.id], 'wrong-confirmation', 'en-US')).rejects.toThrow(
+      'Cleanup confirmation has expired'
+    )
+  })
 })
 
 async function makeStoreCandidate(overrides: Partial<InternalCandidate> = {}) {
@@ -173,6 +186,7 @@ function makeCandidate({
     title: path.basename(pathName),
     categoryId: 'caches',
     categoryName: '用户缓存',
+    categoryNameKey: 'category.caches.name',
     kind: 'cache',
     safety: 'safe',
     canClean: true,
@@ -185,8 +199,11 @@ function makeCandidate({
     pathSnapshotHash: `hash-${id}`,
     estimateSource: 'file-stat',
     reason: '缓存通常可由应用重新生成。',
+    reasonKey: 'candidate.cache.reason',
     impact: '清理后相关应用首次启动或加载内容时可能变慢。',
+    impactKey: 'candidate.cache.impact',
     actionLabel: '移到废纸篓',
+    actionLabelKey: 'candidate.cache.action',
     paths: [pathName],
     allowedRoot,
     ...overrides,
