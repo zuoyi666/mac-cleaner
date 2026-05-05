@@ -1,0 +1,50 @@
+{
+  "name": "mac-cleaner",
+  "version": "0.1.0",
+  "description": "Local visual macOS storage cleanup assistant.",
+  "license": "MIT",
+  "type": "module",
+  "main": "out/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zuoyi666/mac-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zuoyi666/mac-cleaner/issues"
+  },
+  "homepage": "https://github.com/zuoyi666/mac-cleaner#readme",
+  "keywords": [
+    "macos",
+    "storage",
+    "cleanup",
+    "electron",
+    "react"
+  ],
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit && electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^41.5.0",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
+  }
+}
