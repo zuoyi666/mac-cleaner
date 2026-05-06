@@ -10,7 +10,7 @@ const target = args.target
 const parentPid = Number(args['parent-pid'] ?? 0)
 
 if (!source || !target || !isAllowedTarget(target)) {
-  console.error('Usage: install-local-app.mjs --source <Mac Cleaner.app> --target <~/Applications/Mac Cleaner.app> --parent-pid <pid>')
+  console.error('Usage: install-local-app.mjs --source <Mac Cleaner.app> --target <~/Desktop/Mac Cleaner.app> --parent-pid <pid>')
   process.exit(2)
 }
 
@@ -68,7 +68,7 @@ function copyAppBundle(sourcePath, targetPath) {
 
 function isAllowedTarget(targetPath) {
   if (!path.isAbsolute(targetPath)) return false
-  const applicationsRoot = path.join(os.homedir(), 'Applications')
-  const relative = path.relative(applicationsRoot, targetPath)
+  const homeRoot = os.homedir()
+  const relative = path.relative(homeRoot, targetPath)
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && path.basename(targetPath) === 'Mac Cleaner.app'
 }

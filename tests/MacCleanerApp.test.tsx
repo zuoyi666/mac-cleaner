@@ -10,10 +10,10 @@ import type { AppLanguage, CleanupCandidate, CleanupPreview, LocalUpdateStatus, 
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.4.0',
-  latestVersion: '0.4.0',
+  currentVersion: '0.5.0',
+  latestVersion: '0.5.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
-  installTarget: '/Users/yizuo/Applications/Mac Cleaner.app',
+  installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
   upstream: 'origin/codex/reliability-upgrades',
   localCommit: 'local',
@@ -43,8 +43,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.4.0',
-      currentVersion: '0.4.0',
+      previousVersion: '0.5.0',
+      currentVersion: '0.5.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -105,8 +105,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.4.0',
-        currentVersion: '0.4.0',
+        previousVersion: '0.5.0',
+        currentVersion: '0.5.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -179,8 +179,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.4.0',
-        currentVersion: '0.4.0',
+        previousVersion: '0.5.0',
+        currentVersion: '0.5.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -349,7 +349,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.4.0',
+      latestVersion: '0.5.0',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -364,12 +364,12 @@ describe('MacCleanerApp', () => {
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
         previousVersion: '0.2.0',
-        currentVersion: '0.4.0',
+        currentVersion: '0.5.0',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.4.0，即将重启。',
+        message: '已同步到 0.5.0，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.4.0' }
+        messageParams: { currentVersion: '0.5.0' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,

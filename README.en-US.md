@@ -15,16 +15,22 @@ npm ci
 npm run install:local:en
 ```
 
-The app is installed to:
+By default, the app is installed to the Desktop:
 
 ```bash
-~/Applications/Mac Cleaner.app
+~/Desktop/Mac Cleaner.app
 ```
 
 This command sets the default interface language on this Mac to English. The preference is stored only on this device in:
 
 ```bash
 ~/Library/Application Support/Mac Cleaner/settings.json
+```
+
+On first install, the terminal lets you enter another install directory; press Enter to keep the Desktop default. You can also pass the install directory explicitly:
+
+```bash
+npm run install:local:en -- --install-dir "$HOME/Tools"
 ```
 
 You can still switch to Chinese from the Local Settings card inside the app. This is an unsigned local build from source, so macOS may show an unsigned-app warning the first time you open it.
@@ -121,7 +127,7 @@ This produces a double-clickable `.app` with the Mac Cleaner icon, but it is int
 Install and keep the maintainer's local app synced from this source checkout:
 
 - The app checks the current GitHub branch at startup and from Local Settings.
-- When an update is available, Sync and Install runs `git pull --ff-only`, `npm ci`, `npm run package:dir`, installs to `~/Applications/Mac Cleaner.app`, and restarts the app.
+- When an update is available, Sync and Install runs `git pull --ff-only`, `npm ci`, `npm run package:dir`, installs to `~/Desktop/Mac Cleaner.app`, and restarts the app.
 - The update is blocked if tracked local files are dirty or if the branch diverged from its upstream.
 
 Create unsigned macOS release artifacts locally:
@@ -141,7 +147,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.4.0` adds separate Chinese and English GitHub guide pages plus language-directed local installation commands. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.5.0` changes the default install location to Desktop, allows first-install directory selection, and keeps language-directed install commands. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

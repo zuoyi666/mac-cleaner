@@ -1141,7 +1141,7 @@ function formatLocalUpdateBranch(status: LocalUpdateStatus | null, language: App
 
 function formatLocalUpdateTarget(status: LocalUpdateStatus | null, language: AppLanguage): string {
   return t(language, 'ui.localUpdateInstallTarget', {
-    installTarget: status?.installTarget ?? '~/Applications/Mac Cleaner.app'
+    installTarget: status?.installTarget ?? '~/Desktop/Mac Cleaner.app'
   })
 }
 

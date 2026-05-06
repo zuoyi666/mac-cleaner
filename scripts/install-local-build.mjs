@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseLanguageArg, writeLanguagePreference } from './language-preference.mjs'
+import { chooseInstallTarget, parseInstallTargetArg, parseLanguageArg, writeInstallTarget, writeLanguagePreference } from './language-preference.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const installTarget = path.join(os.homedir(), 'Applications', 'Mac Cleaner.app')
 const requestedLanguage = parseLanguageArg(process.argv.slice(2))
+const requestedInstallTarget = parseInstallTargetArg(process.argv.slice(2))
+const installTarget = await chooseInstallTarget({ requestedTarget: requestedInstallTarget })
 
 console.log('Mac Cleaner local install')
 console.log('免费本地构建，不需要 Apple Developer 账号。')
@@ -38,7 +38,8 @@ await run('node', [
   '0'
 ])
 
-console.log('安装完成。以后可以双击 ~/Applications/Mac Cleaner.app 启动。')
+await writeInstallTarget(installTarget)
+console.log(`安装完成。以后可以双击 ${installTarget} 启动。`)
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
