@@ -48,7 +48,7 @@ async function createWindow(): Promise<void> {
     backgroundColor: '#05080d',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -66,9 +66,16 @@ async function createWindow(): Promise<void> {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   registerIpcHandlers()
   if (process.env.MAC_CLEANER_SMOKE_TEST === '1') {
+    try {
+      await fs.access(path.join(__dirname, '../preload/index.cjs'))
+    } catch (error) {
+      console.error('Smoke test failed: preload bridge bundle is missing.', error)
+      app.exit(1)
+      return
+    }
     app.exit(0)
     return
   }

@@ -81,8 +81,12 @@ const categoryIcons: Record<string, typeof Archive> = {
 }
 
 export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.Element {
-  const isBrowserPreview = !api && !window.macCleaner
-  const macCleaner = useMemo(() => api ?? window.macCleaner ?? createDemoApi(), [api])
+  const isBrowserPreview = !api && !window.macCleaner && shouldUseDemoPreview()
+  const nativeBridgeMissing = !api && !window.macCleaner && !isBrowserPreview
+  const macCleaner = useMemo(
+    () => api ?? window.macCleaner ?? (isBrowserPreview ? createDemoApi() : createUnavailableApi()),
+    [api, isBrowserPreview]
+  )
   const [summary, setSummary] = useState<ScanSummary | null>(
     initialSummary === undefined ? (isBrowserPreview ? demoSummary : null) : initialSummary
   )
@@ -110,6 +114,12 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
   useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
+
+  useEffect(() => {
+    if (nativeBridgeMissing) {
+      setError(t(language, 'ui.nativeBridgeMissing'))
+    }
+  }, [language, nativeBridgeMissing])
 
   useEffect(() => {
     let cancelled = false
@@ -468,7 +478,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               <HardDrive size={16} />
               <span>{summary?.disk.mountPath ?? 'Macintosh HD'}</span>
             </div>
-            <button className="primary-button" onClick={runScan} disabled={isScanning}>
+            <button className="primary-button" onClick={runScan} disabled={isScanning || nativeBridgeMissing}>
               {isScanning ? <Loader2 className="spin" size={17} /> : <RefreshCw size={17} />}
               {isScanning ? t(language, 'ui.scanning') : t(language, 'ui.scanStorage')}
             </button>
@@ -1238,6 +1248,30 @@ function recordCleanupHistory(
     localStorage.setItem('mac-cleaner-cleanup-history', JSON.stringify(next))
     return next
   })
+}
+
+function shouldUseDemoPreview(): boolean {
+  return new URLSearchParams(window.location.search).get('demo') === '1'
+}
+
+function createUnavailableApi(): MacCleanerApi {
+  const unavailable = async (): Promise<never> => {
+    throw new Error(t(readStoredLanguage(), 'ui.nativeBridgeMissing'))
+  }
+  return {
+    scan: unavailable,
+    cancelScan: unavailable,
+    cleanupPreview: unavailable,
+    moveToTrash: unavailable,
+    revealPath: unavailable,
+    checkForLocalUpdate: unavailable,
+    runLocalSourceUpdate: unavailable,
+    configureLocalUpdate: unavailable,
+    getLanguagePreference: async () => null,
+    setLanguagePreference: async (language) => language,
+    onScanProgress: () => () => undefined,
+    onLocalUpdateProgress: () => () => undefined
+  }
 }
 
 function formatError(error: unknown): string {
