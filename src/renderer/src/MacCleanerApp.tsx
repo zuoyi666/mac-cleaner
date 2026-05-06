@@ -25,11 +25,13 @@ import type {
   AppLanguage,
   CategorySummary,
   CleanupCandidate,
+  CleanupFailure,
   CleanupPreview,
   CleanupResult,
   LocalUpdateProgress,
   LocalUpdateStatus,
   MacCleanerApi,
+  RevealResult,
   SafetyLevel,
   ScanProgress,
   ScanIssue,
@@ -89,7 +91,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [query, setQuery] = useState('')
-  const [sortMode, setSortMode] = useState<'size-desc' | 'risk-desc' | 'name-asc'>('size-desc')
+  const [sortMode, setSortMode] = useState<'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'>('recommended')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [preview, setPreview] = useState<CleanupPreview | null>(null)
@@ -250,7 +252,9 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   function toggleAllVisible(): void {
     setSelectedIds((current) => {
-      const visibleCleanableIds = filteredCandidates.filter((candidate) => candidate.canClean).map((candidate) => candidate.id)
+      const visibleCleanableIds = filteredCandidates
+        .filter((candidate) => candidate.canClean && candidate.safety === 'safe')
+        .map((candidate) => candidate.id)
       const allSelected = visibleCleanableIds.every((candidateId) => current.has(candidateId))
       const next = new Set(current)
       for (const candidateId of visibleCleanableIds) {
@@ -268,9 +272,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   async function reveal(candidate: CleanupCandidate): Promise<void> {
     try {
-      await macCleaner.revealPath(candidate.pathToken)
-      setError(null)
-      setNotice(t(language, 'ui.revealOpened'))
+      const revealResult = await macCleaner.revealPath(candidate.pathToken)
+      handleRevealResult(revealResult)
     } catch (revealError) {
       setNotice(null)
       setError(formatError(revealError))
@@ -284,13 +287,22 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       return
     }
     try {
-      await macCleaner.revealPath(trashToken)
-      setError(null)
-      setNotice(t(language, 'ui.revealOpened'))
+      const revealResult = await macCleaner.revealPath(trashToken)
+      handleRevealResult(revealResult)
     } catch (revealError) {
       setNotice(null)
       setError(formatError(revealError))
     }
+  }
+
+  function handleRevealResult(revealResult: RevealResult): void {
+    if (revealResult.ok) {
+      setError(null)
+      setNotice(localizeRevealResult(revealResult, language))
+      return
+    }
+    setNotice(null)
+    setError(localizeRevealResult(revealResult, language))
   }
 
   async function checkLocalUpdate(): Promise<void> {
@@ -550,6 +562,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, 'ui.searchPlaceholder')} />
                 </label>
                 <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+                  <option value="recommended">{t(language, 'ui.sortRecommended')}</option>
                   <option value="size-desc">{t(language, 'ui.sortSize')}</option>
                   <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
                   <option value="name-asc">{t(language, 'ui.sortName')}</option>
@@ -558,7 +571,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <button
                     className="secondary-button compact-action"
                     onClick={toggleAllVisible}
-                    disabled={!filteredCandidates.some((candidate) => candidate.canClean)}
+                    disabled={!filteredCandidates.some((candidate) => candidate.canClean && candidate.safety === 'safe')}
                   >
                     <CheckCircle2 size={15} />
                     <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
@@ -593,17 +606,38 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             )}
 
             {result && (
-              <div className="message success-message">
-                <CheckCircle2 size={16} />
-                <span>
-                  {t(language, 'ui.cleanupResult', {
-                    successCount: result.successCount.toLocaleString(language),
-                    bytes: formatBytes(result.cleanedBytes),
-                    failedText: result.failed.length
-                      ? t(language, 'ui.cleanupResultFailures', { count: result.failed.length.toLocaleString(language) })
-                      : ''
-                  })}
-                </span>
+              <div className="message success-message cleanup-result-message">
+                <div>
+                  <CheckCircle2 size={16} />
+                  <span>
+                    {t(language, 'ui.cleanupResult', {
+                      verifiedCount: result.verifiedRemovedCount.toLocaleString(language),
+                      successCount: result.successCount.toLocaleString(language),
+                      bytes: formatBytes(result.cleanedBytes),
+                      trashText:
+                        result.trashDeltaBytes !== undefined
+                          ? t(language, 'ui.cleanupTrashDelta', { bytes: formatBytes(result.trashDeltaBytes) })
+                          : '',
+                      failedText: result.failed.length
+                        ? t(language, 'ui.cleanupResultFailures', { count: result.failed.length.toLocaleString(language) })
+                        : ''
+                    })}
+                  </span>
+                </div>
+                <button className="secondary-button mini" onClick={revealTrash}>
+                  <FolderOpen size={14} />
+                  {t(language, 'ui.openTrash')}
+                </button>
+                {result.failed.length > 0 && (
+                  <details className="failure-details">
+                    <summary>{t(language, 'ui.failureDetails')}</summary>
+                    {result.failed.slice(0, 8).map((failure) => (
+                      <p key={`${failure.candidateId ?? 'unknown'}:${failure.path}`}>
+                        {localizeCleanupFailure(failure, language)} · {failure.path}
+                      </p>
+                    ))}
+                  </details>
+                )}
               </div>
             )}
 
@@ -731,16 +765,24 @@ function CandidateRow({
             type="checkbox"
             checked={checked}
             disabled={!candidate.canClean}
-            aria-label={t(language, 'ui.selectCandidateAria', { title: candidate.title })}
+            aria-label={t(language, 'ui.selectCandidateAria', { title: localizeCandidateTitle(candidate, language) })}
             onChange={(event) => {
               event.stopPropagation()
               onToggleSelect()
             }}
             onClick={(event) => event.stopPropagation()}
           />
-          <strong>{candidate.title}</strong>
+          <strong>
+            {localizeCandidateTitle(candidate, language)}
+            {candidate.displayKind === 'group' && <em className="group-chip">{t(language, 'ui.groupBadge')}</em>}
+          </strong>
         </span>
         <small>{candidate.pathPreview}</small>
+        {candidate.displayKind === 'group' && candidate.groupCount && (
+          <small className="group-line">
+            {localizeGroupSummary(candidate, language)}
+          </small>
+        )}
       </span>
       <SafetyBadge safety={candidate.safety} language={language} />
       <span className="size-cell">{formatBytes(candidate.sizeBytes)}</span>
@@ -749,7 +791,7 @@ function CandidateRow({
         <button
           className="icon-button"
           title={t(language, 'ui.revealInFinder')}
-          aria-label={`${t(language, 'ui.revealInFinder')}: ${candidate.title}`}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${localizeCandidateTitle(candidate, language)}`}
           onClick={(event) => {
             event.stopPropagation()
             onReveal()
@@ -762,8 +804,8 @@ function CandidateRow({
           title={candidate.canClean ? localizeCandidateAction(candidate, language) : t(language, 'ui.cannotClean')}
           aria-label={
             candidate.canClean
-              ? `${localizeCandidateAction(candidate, language)}: ${candidate.title}`
-              : `${t(language, 'ui.cannotClean')}: ${candidate.title}`
+              ? `${localizeCandidateAction(candidate, language)}: ${localizeCandidateTitle(candidate, language)}`
+              : `${t(language, 'ui.cannotClean')}: ${localizeCandidateTitle(candidate, language)}`
           }
           disabled={!candidate.canClean}
           onClick={(event) => {
@@ -822,7 +864,7 @@ function CandidateInspector({
         <span>{localizeCandidateCategoryName(candidate, language)}</span>
         <SafetyBadge safety={candidate.safety} language={language} />
       </div>
-      <h2>{candidate.title}</h2>
+      <h2>{localizeCandidateTitle(candidate, language)}</h2>
       <p className="path-line">{candidate.pathPreview}</p>
 
       <div className="detail-stack">
@@ -855,6 +897,19 @@ function CandidateInspector({
             <strong>{t(language, 'ui.permissionPolicyTitle')}</strong>
           </div>
           <p>{t(language, 'ui.permissionPolicyText')}</p>
+        </section>
+      )}
+
+      {candidate.displayKind === 'group' && (
+        <section className="impact-box group-detail-box">
+          <span>{t(language, 'ui.groupSummary')}</span>
+          <p>{localizeGroupSummary(candidate, language)}</p>
+          <span>{t(language, 'ui.pathSamples')}</span>
+          <div className="sample-path-list">
+            {candidate.pathSamples.slice(0, 8).map((sample) => (
+              <code key={sample}>{sample}</code>
+            ))}
+          </div>
         </section>
       )}
 
@@ -1002,8 +1057,17 @@ function localizeCategoryName(category: CategorySummary, language: AppLanguage):
   return category.nameKey ? t(language, category.nameKey) : category.name
 }
 
+function localizeCandidateTitle(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.titleKey ? t(language, candidate.titleKey, candidate.titleParams) : candidate.title
+}
+
 function localizeCandidateCategoryName(candidate: CleanupCandidate, language: AppLanguage): string {
   return candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName
+}
+
+function localizeGroupSummary(candidate: CleanupCandidate, language: AppLanguage): string {
+  if (!candidate.groupSummaryKey) return ''
+  return t(language, candidate.groupSummaryKey, candidate.groupSummaryParams)
 }
 
 function localizeCandidateReason(candidate: CleanupCandidate, language: AppLanguage): string {
@@ -1024,6 +1088,14 @@ function localizeBlockedReason(candidate: CleanupCandidate, language: AppLanguag
 
 function localizeIssue(issue: ScanIssue, language: AppLanguage): string {
   return issue.messageKey ? t(language, issue.messageKey, issue.messageParams) : issue.message
+}
+
+function localizeCleanupFailure(failure: CleanupFailure, language: AppLanguage): string {
+  return failure.errorKey ? t(language, failure.errorKey, failure.errorParams) : failure.error
+}
+
+function localizeRevealResult(result: RevealResult, language: AppLanguage): string {
+  return result.messageKey ? t(language, result.messageKey, result.messageParams) : result.message
 }
 
 function localizeProgress(progress: ScanProgress | null, language: AppLanguage): string | null {
@@ -1101,14 +1173,29 @@ function formatDateTime(value: string, language: AppLanguage): string {
 
 function sortCandidates(
   candidates: CleanupCandidate[],
-  sortMode: 'size-desc' | 'risk-desc' | 'name-asc'
+  sortMode: 'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'
 ): CleanupCandidate[] {
   const riskScore: Record<SafetyLevel, number> = { discouraged: 3, confirm: 2, safe: 1 }
+  const recommendedSafetyScore: Record<SafetyLevel, number> = { safe: 0, confirm: 1, discouraged: 2 }
   return [...candidates].sort((left, right) => {
     if (sortMode === 'name-asc') return left.title.localeCompare(right.title)
     if (sortMode === 'risk-desc') return riskScore[right.safety] - riskScore[left.safety] || right.sizeBytes - left.sizeBytes
+    if (sortMode === 'recommended') {
+      return (
+        recommendedSafetyScore[left.safety] - recommendedSafetyScore[right.safety] ||
+        kindPriority(left) - kindPriority(right) ||
+        right.sizeBytes - left.sizeBytes
+      )
+    }
     return right.sizeBytes - left.sizeBytes
   })
+}
+
+function kindPriority(candidate: CleanupCandidate): number {
+  if (candidate.safety === 'discouraged') return 9
+  if (candidate.kind === 'cache' || candidate.kind === 'log' || candidate.kind === 'diagnostic') return 0
+  if (candidate.kind === 'download-archive') return 1
+  return 2
 }
 
 function formatEstimateSource(source: CleanupCandidate['estimateSource'], language: AppLanguage): string {

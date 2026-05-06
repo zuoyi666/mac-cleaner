@@ -10,6 +10,7 @@ const CONFIRMATION_TTL_MS = 5 * 60 * 1000
 export interface CleanupStore {
   getCandidate(candidateId: string): InternalCandidate | undefined
   removeCandidate(candidateId: string): void
+  getTrashPath?(): string | undefined
 }
 
 export interface CleanupManager {
@@ -47,9 +48,9 @@ export function createCleanupManager(
         confirmationId,
         scanId,
         pathSnapshotHash,
-        title: candidates.length === 1 ? candidates[0].title : t(language, 'cleanup.batchTitle', { count: candidates.length }),
-        titleKey: candidates.length === 1 ? undefined : 'cleanup.batchTitle',
-        titleParams: candidates.length === 1 ? undefined : { count: candidates.length },
+        title: candidates.length === 1 ? localizedCandidateTitle(candidates[0], language) : t(language, 'cleanup.batchTitle', { count: candidates.length }),
+        titleKey: candidates.length === 1 ? candidates[0].titleKey : 'cleanup.batchTitle',
+        titleParams: candidates.length === 1 ? candidates[0].titleParams : { count: candidates.length },
         totalBytes,
         pathCount: candidates.reduce((sum, candidate) => sum + candidate.pathCount, 0),
         pathSamples,
@@ -80,8 +81,10 @@ export function createCleanupManager(
 
       const failed: CleanupResult['failed'] = []
       let successCount = 0
+      let verifiedRemovedCount = 0
       let cleanedBytes = 0
       const successfulCandidates = new Set<string>()
+      const trashBefore = await readTrashSnapshot(store.getTrashPath?.())
 
       for (const candidate of candidates) {
         let candidateSucceeded = true
@@ -121,10 +124,21 @@ export function createCleanupManager(
               continue
             }
             await trashItem(targetPath)
+            if (await pathExists(targetPath)) {
+              failed.push({
+                candidateId: candidate.id,
+                path: targetPath,
+                error: t(language, 'cleanup.failure.notRemoved'),
+                errorKey: 'cleanup.failure.notRemoved'
+              })
+              candidateSucceeded = false
+              continue
+            }
             successCount += 1
+            verifiedRemovedCount += 1
             cleanedBytes += snapshot.sizeBytes
           } catch (error) {
-            failed.push({ candidateId: candidate.id, path: targetPath, error: formatError(error) })
+            failed.push(formatCleanupFailure(candidate.id, targetPath, error, language))
             candidateSucceeded = false
             continue
           }
@@ -135,11 +149,19 @@ export function createCleanupManager(
       for (const candidateId of successfulCandidates) {
         store.removeCandidate(candidateId)
       }
+      const trashAfter = await readTrashSnapshot(store.getTrashPath?.())
 
       return {
         candidateIds,
         cleanedBytes,
         successCount,
+        verifiedRemovedCount,
+        trashBeforeBytes: trashBefore?.sizeBytes,
+        trashAfterBytes: trashAfter?.sizeBytes,
+        trashDeltaBytes:
+          trashBefore?.sizeBytes !== undefined && trashAfter?.sizeBytes !== undefined
+            ? Math.max(0, trashAfter.sizeBytes - trashBefore.sizeBytes)
+            : undefined,
         failed,
         movedToTrash: successCount > 0,
         needsRescan: successCount > 0 || failed.length > 0
@@ -200,6 +222,10 @@ function localizedCandidateImpact(candidate: InternalCandidate, language: AppLan
   return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
 }
 
+function localizedCandidateTitle(candidate: InternalCandidate, language: AppLanguage): string {
+  return candidate.titleKey ? t(language, candidate.titleKey, candidate.titleParams) : candidate.title
+}
+
 function batchImpactKey(candidates: InternalCandidate[]): string {
   const safetyLabels = new Set(candidates.map((candidate) => candidate.safety))
   if (safetyLabels.has('confirm')) {
@@ -210,6 +236,66 @@ function batchImpactKey(candidates: InternalCandidate[]): string {
 
 function summarizeBatchImpact(candidates: InternalCandidate[], language: AppLanguage): string {
   return t(language, batchImpactKey(candidates))
+}
+
+function formatCleanupFailure(candidateId: string, targetPath: string, error: unknown, language: AppLanguage): CleanupResult['failed'][number] {
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === 'ENOENT') {
+    return {
+      candidateId,
+      path: targetPath,
+      error: t(language, 'cleanup.failure.notFound'),
+      errorKey: 'cleanup.failure.notFound'
+    }
+  }
+  if (code === 'EACCES' || code === 'EPERM') {
+    return {
+      candidateId,
+      path: targetPath,
+      error: t(language, 'cleanup.failure.permissionDenied'),
+      errorKey: 'cleanup.failure.permissionDenied'
+    }
+  }
+  return { candidateId, path: targetPath, error: formatError(error) }
+}
+
+async function readTrashSnapshot(trashPath: string | undefined): Promise<{ sizeBytes: number; itemCount: number } | undefined> {
+  if (!trashPath) return undefined
+  try {
+    return await measureTrashPath(trashPath)
+  } catch {
+    return undefined
+  }
+}
+
+async function measureTrashPath(targetPath: string): Promise<{ sizeBytes: number; itemCount: number }> {
+  const stats = await fs.lstat(targetPath)
+  if (stats.isSymbolicLink()) return { sizeBytes: 0, itemCount: 0 }
+  if (stats.isFile()) return { sizeBytes: Number(stats.size), itemCount: 1 }
+  if (!stats.isDirectory()) return { sizeBytes: 0, itemCount: 0 }
+
+  let sizeBytes = 0
+  let itemCount = 0
+  const entries = await fs.readdir(targetPath).catch(() => [])
+  for (const entry of entries) {
+    const child = await measureTrashPath(pathJoin(targetPath, entry))
+    sizeBytes += child.sizeBytes
+    itemCount += child.itemCount
+  }
+  return { sizeBytes, itemCount }
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.lstat(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function pathJoin(parent: string, child: string): string {
+  return `${parent.replace(/\/$/, '')}/${child}`
 }
 
 function formatError(error: unknown): string {

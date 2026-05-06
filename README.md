@@ -2,6 +2,23 @@
 
 Mac Cleaner is a free, open-source, local visual macOS storage cleanup assistant built with Electron, React, and TypeScript. It scans low-risk user-level storage locations, explains what each cleanup candidate means, and only moves files to Trash after an explicit second confirmation.
 
+## One-command Local App
+
+Any GitHub user can build and install a double-clickable local app with the Mac Cleaner icon. This does not require our Apple Developer account and does not require your own Apple Developer account.
+
+```bash
+npm ci
+npm run install:local
+```
+
+The app is installed to:
+
+```bash
+~/Applications/Mac Cleaner.app
+```
+
+This is an unsigned local build from source. macOS may still show an unsigned-app warning the first time you open it, but the app remains local-only, free, and telemetry-free.
+
 ## Safety Model
 
 - No automatic deletion.
@@ -10,8 +27,9 @@ Mac Cleaner is a free, open-source, local visual macOS storage cleanup assistant
 - No telemetry, cloud sync, account system, or background cleanup task.
 - Cleanup actions only accept candidate IDs produced by the scanner, never arbitrary paths from the renderer.
 - Cleanup confirmations are bound to the scan ID and path snapshot shown in the preview.
-- Confirmed cleanup uses macOS Trash through Electron `shell.trashItem`.
+- Confirmed cleanup uses macOS Trash through Electron `shell.trashItem`, then verifies the original path is gone.
 - Inaccessible paths, symbolic links, and paths outside the fixed allowlist are skipped or blocked.
+- The app reports Trash size changes as an estimate; macOS may rename items inside Trash.
 
 ## Current Scan Scope
 
@@ -31,6 +49,8 @@ Each cleanup item is labelled as:
 - `安全可清理`: low-risk cache, log, or diagnostic data
 - `需确认`: user-visible or potentially useful generated/downloaded data
 - `不建议清理`: blocked, inaccessible, unsupported, or unclear-risk data
+
+Small same-kind items are grouped by default so the app does not flood you with dozens of tiny files. Large safe caches and old installers stay visible as individual rows.
 
 ## Language
 
@@ -54,6 +74,12 @@ Run the desktop app:
 
 ```bash
 npm run dev
+```
+
+Install a local double-clickable app:
+
+```bash
+npm run install:local
 ```
 
 Run checks:
@@ -98,7 +124,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.2.0` adds a custom app icon and maintainer-only macOS signing/notarization workflow. Contributor builds remain unsigned local development builds. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.3.0` adds one-command local app installation, grouped cleanup candidates, source-removal verification after Trash moves, structured Finder reveal feedback, and a dark technical interface. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

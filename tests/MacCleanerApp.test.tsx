@@ -10,8 +10,8 @@ import type { CleanupCandidate, CleanupPreview, LocalUpdateStatus, MacCleanerApi
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.2.0',
-  latestVersion: '0.2.0',
+  currentVersion: '0.3.0',
+  latestVersion: '0.3.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Applications/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -25,18 +25,26 @@ const currentUpdateStatus: LocalUpdateStatus = {
   checkedAt: new Date().toISOString()
 }
 
+const revealOk = {
+  ok: true,
+  targetKind: 'directory',
+  method: 'open-path',
+  message: '已在 Finder 中打开目录。',
+  messageKey: 'main.revealOpenedDirectory'
+} as const
+
 function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
   return {
     scan: vi.fn().mockResolvedValue(demoSummary),
     cancelScan: vi.fn().mockResolvedValue(undefined),
     cleanupPreview: vi.fn(),
     moveToTrash: vi.fn(),
-    revealPath: vi.fn().mockResolvedValue(undefined),
+    revealPath: vi.fn().mockResolvedValue(revealOk),
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.2.0',
-      currentVersion: '0.2.0',
+      previousVersion: '0.3.0',
+      currentVersion: '0.3.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -82,16 +90,20 @@ describe('MacCleanerApp', () => {
         candidateIds: [firstCandidate.id],
         cleanedBytes: firstCandidate.sizeBytes,
         successCount: 1,
+        verifiedRemovedCount: 1,
+        trashBeforeBytes: demoSummary.trash.sizeBytes,
+        trashAfterBytes: demoSummary.trash.sizeBytes + firstCandidate.sizeBytes,
+        trashDeltaBytes: firstCandidate.sizeBytes,
         failed: [],
         movedToTrash: true,
         needsRescan: true
       }),
-      revealPath: vi.fn().mockResolvedValue(undefined),
+      revealPath: vi.fn().mockResolvedValue(revealOk),
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.2.0',
-        currentVersion: '0.2.0',
+        previousVersion: '0.3.0',
+        currentVersion: '0.3.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -113,7 +125,7 @@ describe('MacCleanerApp', () => {
 
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
-    expect(await screen.findByText('已请求 Finder 显示该位置。')).toBeInTheDocument()
+    expect(await screen.findByText('已在 Finder 中打开目录。')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
@@ -150,16 +162,20 @@ describe('MacCleanerApp', () => {
         candidateIds: candidates.map((candidate) => candidate.id),
         cleanedBytes: candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0),
         successCount: 2,
+        verifiedRemovedCount: 2,
+        trashBeforeBytes: demoSummary.trash.sizeBytes,
+        trashAfterBytes: demoSummary.trash.sizeBytes + candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0),
+        trashDeltaBytes: candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0),
         failed: [],
         movedToTrash: true,
         needsRescan: true
       }),
-      revealPath: vi.fn().mockResolvedValue(undefined),
+      revealPath: vi.fn().mockResolvedValue(revealOk),
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.2.0',
-        currentVersion: '0.2.0',
+        previousVersion: '0.3.0',
+        currentVersion: '0.3.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -186,7 +202,13 @@ describe('MacCleanerApp', () => {
     const user = userEvent.setup()
     const firstCandidate = demoSummary.candidates[0]
     const api = makeApi({
-      revealPath: vi.fn().mockRejectedValue(new Error('Finder 无法显示该位置'))
+      revealPath: vi.fn().mockResolvedValue({
+        ok: false,
+        targetKind: 'missing',
+        method: 'none',
+        message: '该位置已经不存在，请重新扫描。',
+        messageKey: 'main.revealMissing'
+      })
     })
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
@@ -194,7 +216,7 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
 
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
-    expect(await screen.findByText('Finder 无法显示该位置')).toBeInTheDocument()
+    expect(await screen.findByText('该位置已经不存在，请重新扫描。')).toBeInTheDocument()
   })
 
   it('marks permission-blocked items as not recommended without requesting access', async () => {
@@ -298,7 +320,7 @@ describe('MacCleanerApp', () => {
       cancelScan: vi.fn().mockResolvedValue(undefined),
       cleanupPreview: vi.fn(),
       moveToTrash: vi.fn(),
-      revealPath: vi.fn().mockResolvedValue(undefined),
+      revealPath: vi.fn().mockResolvedValue(revealOk),
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
