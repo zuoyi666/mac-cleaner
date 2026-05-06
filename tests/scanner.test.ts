@@ -45,6 +45,59 @@ describe('scanStorage', () => {
     expect(oldInstaller?.safety).toBe('confirm')
   })
 
+  it('does not double count diagnostic reports as logs', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'Logs', 'app.log'), 64)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Logs', 'DiagnosticReports', 'app.crash'), 128)
+
+    const run = await scanStorage({ homeDir, now: fixedNow })
+    const logs = run.summary.categories.find((category) => category.id === 'logs')
+    const diagnostics = run.summary.categories.find((category) => category.id === 'diagnostics')
+
+    expect(run.summary.candidates.some((candidate) => candidate.categoryId === 'logs' && candidate.title === 'DiagnosticReports')).toBe(
+      false
+    )
+    expect(logs?.sizeBytes).toBe(64)
+    expect(diagnostics?.sizeBytes).toBe(128)
+  })
+
+  it('marks HTTPStorages candidates as requiring confirmation', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'HTTPStorages', 'com.example.webview', 'state.db'), 128)
+
+    const run = await scanStorage({ homeDir, now: fixedNow })
+    const candidate = run.summary.candidates.find((item) => item.categoryId === 'http-storage')
+
+    expect(candidate?.safety).toBe('confirm')
+    expect(candidate?.impact).toContain('重新登录')
+  })
+
+  it('returns English category and candidate text when requested', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'HTTPStorages', 'com.example.webview', 'state.db'), 128)
+
+    const run = await scanStorage({ homeDir, now: fixedNow, language: 'en-US' })
+    const category = run.summary.categories.find((item) => item.id === 'http-storage')
+    const candidate = run.summary.candidates.find((item) => item.categoryId === 'http-storage')
+
+    expect(category?.name).toBe('Web Cache Storage')
+    expect(category?.nameKey).toBe('category.http-storage.name')
+    expect(candidate?.categoryName).toBe('Web Cache Storage')
+    expect(candidate?.reason).toContain('HTTP storage may include')
+    expect(candidate?.impact).toContain('sign in again')
+    expect(candidate?.actionLabel).toBe('Review and Move to Trash')
+  })
+
+  it('can abort a scan before touching allowlisted roots', async () => {
+    const homeDir = await makeHome()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(scanStorage({ homeDir, now: fixedNow, signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError'
+    })
+  })
+
   it('does not scan outside the fixed user-level allowlist', async () => {
     const homeDir = await makeHome()
     await writeSizedFile(path.join(homeDir, 'Documents', 'ImportantArchive.dmg'), 2048, daysAgo(120))

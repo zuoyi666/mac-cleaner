@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -35,3 +35,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Electron smoke test
+        run: npm run smoke:electron
+
+      - name: Audit
+        run: npm audit --audit-level=high
+
+      - name: Electron packaging dry-run
+        run: npm run release:dry-run

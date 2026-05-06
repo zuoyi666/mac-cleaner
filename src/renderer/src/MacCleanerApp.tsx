@@ -7,7 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
-  ExternalLink,
+  DownloadCloud,
   FileArchive,
   FolderOpen,
   Gauge,
@@ -22,15 +22,20 @@ import {
   X
 } from 'lucide-react'
 import type {
+  AppLanguage,
   CategorySummary,
   CleanupCandidate,
   CleanupPreview,
   CleanupResult,
+  LocalUpdateProgress,
+  LocalUpdateStatus,
   MacCleanerApi,
   SafetyLevel,
   ScanProgress,
+  ScanIssue,
   ScanSummary
 } from '../../shared/types'
+import { resolveLanguage, t } from '../../shared/i18n'
 import { createDemoApi, demoSummary } from './demoApi'
 
 interface MacCleanerAppProps {
@@ -40,27 +45,29 @@ interface MacCleanerAppProps {
 
 const safetyMeta: Record<
   SafetyLevel,
-  { label: string; className: string; icon: typeof ShieldCheck; description: string }
+  { labelKey: string; className: string; icon: typeof ShieldCheck; descriptionKey: string }
 > = {
   safe: {
-    label: '安全可清理',
+    labelKey: 'safety.safe.label',
     className: 'safe',
     icon: ShieldCheck,
-    description: '通常不会影响核心功能，最多重新生成缓存或丢失历史日志。'
+    descriptionKey: 'safety.safe.description'
   },
   confirm: {
-    label: '需确认',
+    labelKey: 'safety.confirm.label',
     className: 'confirm',
     icon: AlertTriangle,
-    description: '可能仍有使用价值，执行前需要你明确确认。'
+    descriptionKey: 'safety.confirm.description'
   },
   discouraged: {
-    label: '不建议清理',
+    labelKey: 'safety.discouraged.label',
     className: 'discouraged',
     icon: Ban,
-    description: '风险或权限状态不明确，工具不会自动处理。'
+    descriptionKey: 'safety.discouraged.description'
   }
 }
+
+const LANGUAGE_STORAGE_KEY = 'mac-cleaner-language'
 
 const categoryIcons: Record<string, typeof Archive> = {
   caches: Sparkles,
@@ -79,31 +86,62 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   )
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [query, setQuery] = useState('')
+  const [sortMode, setSortMode] = useState<'size-desc' | 'risk-desc' | 'name-asc'>('size-desc')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [preview, setPreview] = useState<CleanupPreview | null>(null)
   const [isCleaning, setIsCleaning] = useState(false)
   const [result, setResult] = useState<CleanupResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [localUpdateStatus, setLocalUpdateStatus] = useState<LocalUpdateStatus | null>(null)
+  const [localUpdateProgress, setLocalUpdateProgress] = useState<LocalUpdateProgress | null>(null)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [showUpdateConfirm, setShowUpdateConfirm] = useState(false)
+  const [cleanupHistory, setCleanupHistory] = useState<Array<{ id: string; at: string; count: number; bytes: number }>>(() =>
+    readCleanupHistory()
+  )
 
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
+  useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
+
+  useEffect(() => {
+    let cancelled = false
+    async function initialUpdateCheck(): Promise<void> {
+      try {
+        const status = await macCleaner.checkForLocalUpdate(language)
+        if (!cancelled) setLocalUpdateStatus(status)
+      } catch {
+        if (!cancelled) setLocalUpdateStatus(null)
+      }
+    }
+    void initialUpdateCheck()
+    return () => {
+      cancelled = true
+    }
+  }, [macCleaner, language])
 
   const categories = summary?.categories ?? []
   const candidates = summary?.candidates ?? []
 
   const filteredCandidates = useMemo(() => {
-    return candidates.filter((candidate) => {
+    const filtered = candidates.filter((candidate) => {
       const matchesCategory = selectedCategoryId === 'all' || candidate.categoryId === selectedCategoryId
       const lowerQuery = query.trim().toLowerCase()
       const matchesQuery =
         !lowerQuery ||
         candidate.title.toLowerCase().includes(lowerQuery) ||
         candidate.pathPreview.toLowerCase().includes(lowerQuery) ||
-        candidate.categoryName.toLowerCase().includes(lowerQuery)
+        localizeCandidateCategoryName(candidate, language).toLowerCase().includes(lowerQuery) ||
+        localizeCandidateReason(candidate, language).toLowerCase().includes(lowerQuery)
       return matchesCategory && matchesQuery
     })
-  }, [candidates, selectedCategoryId, query])
+    return sortCandidates(filtered, sortMode)
+  }, [candidates, selectedCategoryId, query, sortMode, language])
 
   const selectedCandidate = useMemo(() => {
     if (selectedCandidateId) {
@@ -123,6 +161,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   }, [candidates, filteredCandidates, selectedCandidateId])
 
   const totalCandidates = candidates.length
+  const selectedCleanableIds = useMemo(
+    () => filteredCandidates.filter((candidate) => selectedIds.has(candidate.id) && candidate.canClean).map((candidate) => candidate.id),
+    [filteredCandidates, selectedIds]
+  )
   const usedPercent = summary?.disk.totalBytes
     ? Math.round((summary.disk.usedBytes / summary.disk.totalBytes) * 100)
     : 0
@@ -130,14 +172,16 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   async function runScan(): Promise<void> {
     setIsScanning(true)
     setError(null)
+    setNotice(null)
     setResult(null)
-    setProgress({ stage: 'starting', message: '准备扫描' })
+    setProgress({ stage: 'starting', message: t(language, 'progress.prepare'), messageKey: 'progress.prepare' })
 
     try {
-      const nextSummary = await macCleaner.scan()
+      const nextSummary = await macCleaner.scan(language)
       setSummary(nextSummary)
       setSelectedCategoryId('all')
       setSelectedCandidateId(nextSummary.candidates[0]?.id ?? null)
+      setSelectedIds(new Set())
     } catch (scanError) {
       setError(formatError(scanError))
     } finally {
@@ -145,11 +189,20 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
-  async function openCleanupPreview(candidate: CleanupCandidate): Promise<void> {
+  async function cancelScan(): Promise<void> {
+    try {
+      await macCleaner.cancelScan()
+    } catch (cancelError) {
+      setError(formatError(cancelError))
+    }
+  }
+
+  async function openCleanupPreview(candidateIds: string[]): Promise<void> {
     setError(null)
+    setNotice(null)
     setResult(null)
     try {
-      setPreview(await macCleaner.cleanupPreview(candidate.id))
+      setPreview(await macCleaner.cleanupPreview(candidateIds, language))
     } catch (previewError) {
       setError(formatError(previewError))
     }
@@ -160,21 +213,24 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     setIsCleaning(true)
     setError(null)
     try {
-      const cleanupResult = await macCleaner.moveToTrash(preview.candidateId, preview.confirmationId)
+      const cleanupResult = await macCleaner.moveToTrash(preview.candidateIds, preview.confirmationId, language)
       setResult(cleanupResult)
       setPreview(null)
+      recordCleanupHistory(cleanupResult, setCleanupHistory)
       if (!isBrowserPreview) {
-        const nextSummary = await macCleaner.scan()
+        const nextSummary = await macCleaner.scan(language)
         setSummary(nextSummary)
+        setSelectedIds(new Set())
       } else {
         setSummary((current) =>
           current
             ? {
                 ...current,
-                candidates: current.candidates.filter((candidate) => candidate.id !== preview.candidateId)
+                candidates: current.candidates.filter((candidate) => !preview.candidateIds.includes(candidate.id))
               }
             : current
         )
+        setSelectedIds(new Set())
       }
     } catch (cleanupError) {
       setError(formatError(cleanupError))
@@ -183,11 +239,91 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
+  function toggleCandidate(candidateId: string): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(candidateId)) next.delete(candidateId)
+      else next.add(candidateId)
+      return next
+    })
+  }
+
+  function toggleAllVisible(): void {
+    setSelectedIds((current) => {
+      const visibleCleanableIds = filteredCandidates.filter((candidate) => candidate.canClean).map((candidate) => candidate.id)
+      const allSelected = visibleCleanableIds.every((candidateId) => current.has(candidateId))
+      const next = new Set(current)
+      for (const candidateId of visibleCleanableIds) {
+        if (allSelected) next.delete(candidateId)
+        else next.add(candidateId)
+      }
+      return next
+    })
+  }
+
+  function changeLanguage(nextLanguage: AppLanguage): void {
+    setLanguage(nextLanguage)
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage)
+  }
+
   async function reveal(candidate: CleanupCandidate): Promise<void> {
     try {
       await macCleaner.revealPath(candidate.pathToken)
+      setError(null)
+      setNotice(t(language, 'ui.revealOpened'))
     } catch (revealError) {
+      setNotice(null)
       setError(formatError(revealError))
+    }
+  }
+
+  async function revealTrash(): Promise<void> {
+    const trashToken = summary?.trash.pathToken
+    if (!trashToken) {
+      setNotice(t(language, 'ui.revealUnavailable'))
+      return
+    }
+    try {
+      await macCleaner.revealPath(trashToken)
+      setError(null)
+      setNotice(t(language, 'ui.revealOpened'))
+    } catch (revealError) {
+      setNotice(null)
+      setError(formatError(revealError))
+    }
+  }
+
+  async function checkLocalUpdate(): Promise<void> {
+    setIsCheckingUpdate(true)
+    setError(null)
+    try {
+      setLocalUpdateStatus(await macCleaner.checkForLocalUpdate(language))
+    } catch (updateError) {
+      setError(formatError(updateError))
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }
+
+  async function runLocalUpdate(): Promise<void> {
+    setIsUpdating(true)
+    setError(null)
+    setShowUpdateConfirm(false)
+    try {
+      const updateResult = await macCleaner.runLocalSourceUpdate(language)
+      setLocalUpdateProgress({
+        stage: updateResult.needsRelaunch ? 'relaunching' : 'done',
+        message: updateResult.message,
+        messageKey: updateResult.messageKey,
+        messageParams: updateResult.messageParams
+      })
+      if (!updateResult.needsRelaunch) {
+        setLocalUpdateStatus(await macCleaner.checkForLocalUpdate(language))
+      }
+    } catch (updateError) {
+      setError(formatError(updateError))
+    } finally {
+      setIsUpdating(false)
     }
   }
 
@@ -201,23 +337,24 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           </div>
           <div>
             <strong>Mac Cleaner</strong>
-            <span>本地存储清理</span>
+            <span>{t(language, 'ui.brandSubtitle')}</span>
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="清理分类">
+        <nav className="nav-list" aria-label={t(language, 'ui.cleanupCandidates')}>
           <button
             className={selectedCategoryId === 'all' ? 'nav-item active' : 'nav-item'}
             onClick={() => setSelectedCategoryId('all')}
           >
             <Archive size={17} />
-            <span>全部候选项</span>
+            <span>{t(language, 'ui.navAllCandidates')}</span>
             <strong>{totalCandidates}</strong>
           </button>
           {categories.map((category) => (
             <CategoryNavItem
               key={category.id}
               category={category}
+              language={language}
               active={selectedCategoryId === category.id}
               onSelect={() => setSelectedCategoryId(category.id)}
             />
@@ -228,19 +365,86 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           <div className="trash-card">
             <Trash2 size={17} />
             <div>
-              <span>废纸篓已占用</span>
+              <span>{t(language, 'ui.trashUsed')}</span>
               <strong>{formatBytes(summary?.trash.sizeBytes ?? 0)}</strong>
             </div>
+            <button
+              className="icon-button trash-open-button"
+              title={t(language, 'ui.openTrashTitle')}
+              aria-label={t(language, 'ui.openTrashTitle')}
+              disabled={!summary?.trash.pathToken}
+              onClick={revealTrash}
+            >
+              <FolderOpen size={14} />
+            </button>
           </div>
-          <p>工具只会把确认的条目移到废纸篓，不会清空废纸篓或永久删除。</p>
+          <p>{t(language, 'ui.trashPolicy')}</p>
+          <div className="settings-card">
+            <strong>{t(language, 'ui.settingsTitle')}</strong>
+            <span>{t(language, 'ui.settingsSubtitle')}</span>
+            <div className="language-toggle" aria-label={t(language, 'ui.languageLabel')}>
+              <button className={language === 'zh-CN' ? 'active' : ''} onClick={() => changeLanguage('zh-CN')}>
+                {t(language, 'language.zh')}
+              </button>
+              <button className={language === 'en-US' ? 'active' : ''} onClick={() => changeLanguage('en-US')}>
+                {t(language, 'language.en')}
+              </button>
+            </div>
+            <div className="local-update-box">
+              <div className="local-update-heading">
+                <strong>{t(language, 'ui.localUpdateTitle')}</strong>
+                <span className={`update-state ${localUpdateStatus?.state ?? 'unknown'}`}>
+                  {formatLocalUpdateState(localUpdateStatus, language)}
+                </span>
+              </div>
+              <span>{formatLocalUpdateVersion(localUpdateStatus, language)}</span>
+              <span>{formatLocalUpdateBranch(localUpdateStatus, language)}</span>
+              <span>{formatLocalUpdateTarget(localUpdateStatus, language)}</span>
+              {localUpdateProgress && (
+                <span className="update-progress-line">
+                  {t(language, 'ui.localUpdateProgress')}: {localizeLocalUpdateProgress(localUpdateProgress, language)}
+                </span>
+              )}
+              <div className="local-update-actions">
+                <button className="secondary-button mini" onClick={checkLocalUpdate} disabled={isCheckingUpdate || isUpdating}>
+                  {isCheckingUpdate ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
+                  {t(language, 'ui.localUpdateCheck')}
+                </button>
+                <button
+                  className="primary-button mini"
+                  onClick={() => setShowUpdateConfirm(true)}
+                  disabled={!localUpdateStatus?.updateAvailable || isUpdating}
+                >
+                  {isUpdating ? <Loader2 className="spin" size={14} /> : <DownloadCloud size={14} />}
+                  {t(language, 'ui.localUpdateSync')}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="history-card">
+            <strong>{t(language, 'ui.historyTitle')}</strong>
+            {cleanupHistory.length ? (
+              cleanupHistory.slice(0, 3).map((entry) => (
+                <span key={entry.id}>
+                  {t(language, 'ui.historyEntry', {
+                    count: entry.count.toLocaleString(language),
+                    bytes: formatBytes(entry.bytes),
+                    date: formatDate(entry.at, language)
+                  })}
+                </span>
+              ))
+            ) : (
+              <span>{t(language, 'ui.historyEmpty')}</span>
+            )}
+          </div>
         </div>
       </aside>
 
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="caption">本地扫描 · 无后台任务 · 无自动删除</p>
-            <h1>存储空间清理控制台</h1>
+            <p className="caption">{t(language, 'ui.caption')}</p>
+            <h1>{t(language, 'ui.title')}</h1>
           </div>
           <div className="topbar-actions">
             <div className="disk-selector">
@@ -249,57 +453,85 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             </div>
             <button className="primary-button" onClick={runScan} disabled={isScanning}>
               {isScanning ? <Loader2 className="spin" size={17} /> : <RefreshCw size={17} />}
-              {isScanning ? '扫描中' : '扫描存储空间'}
+              {isScanning ? t(language, 'ui.scanning') : t(language, 'ui.scanStorage')}
             </button>
+            {isScanning && (
+              <button className="secondary-button" onClick={cancelScan}>
+                {t(language, 'ui.cancelScan')}
+              </button>
+            )}
           </div>
         </header>
 
         {isBrowserPreview && (
           <div className="preview-banner">
-            浏览器预览模式正在使用示例数据；在 Electron 应用内运行时会调用真实本地扫描。
+            {t(language, 'ui.previewBanner')}
           </div>
         )}
 
-        <section className="overview-grid" aria-label="存储概览">
+        {localUpdateStatus?.updateAvailable && (
+          <div className="update-banner">
+            <div>
+              <DownloadCloud size={17} />
+              <span>{t(language, 'ui.localUpdateBannerText')}</span>
+            </div>
+            <button className="primary-button" onClick={() => setShowUpdateConfirm(true)} disabled={isUpdating}>
+              {isUpdating ? <Loader2 className="spin" size={16} /> : <DownloadCloud size={16} />}
+              {t(language, 'ui.localUpdateSync')}
+            </button>
+          </div>
+        )}
+
+        <section className="overview-grid" aria-label={t(language, 'ui.storageOverview')}>
           <div className="overview-panel disk-panel">
             <div
               className="donut"
               style={{ '--used-percent': `${usedPercent}%` } as CSSProperties}
-              aria-label={`磁盘已使用 ${usedPercent}%`}
+              aria-label={t(language, 'ui.diskUsedAria', { percent: usedPercent })}
             >
               <span>{usedPercent}%</span>
-              <small>已使用</small>
+              <small>{t(language, 'ui.used')}</small>
             </div>
             <div className="disk-copy">
-              <span>可确认释放</span>
+              <span>{t(language, 'ui.releasable')}</span>
               <strong>{formatBytes(summary?.totalCleanableBytes ?? 0)}</strong>
-              <p>
-                当前磁盘可用 {formatBytes(summary?.disk.availableBytes ?? 0)}，扫描结果只包含用户级低风险位置。
-              </p>
+              <p>{t(language, 'ui.diskCopy', { available: formatBytes(summary?.disk.availableBytes ?? 0) })}</p>
             </div>
           </div>
 
           <div className="overview-panel progress-panel">
             <div className="panel-heading">
-              <span>扫描状态</span>
-              <strong>{summary ? new Date(summary.scannedAt).toLocaleString('zh-CN') : '尚未扫描'}</strong>
+              <span>{t(language, 'ui.scanStatus')}</span>
+              <strong>{summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')}</strong>
             </div>
             <div className="scan-status">
               <div className={isScanning ? 'pulse-dot active' : 'pulse-dot'} />
               <div>
-                <strong>{progress?.message ?? '点击扫描后开始读取文件大小'}</strong>
-                <span>{progress?.currentPath ?? '不会移动、删除或修改任何文件'}</span>
+                <strong>{localizeProgress(progress, language) ?? t(language, 'ui.startScanHint')}</strong>
+                <span>
+                  {progress?.currentPath ?? t(language, 'ui.noMutationHint')}
+                  {progress?.percent !== undefined ? ` · ${progress.percent}%` : ''}
+                </span>
               </div>
             </div>
             {summary?.issues.length ? (
-              <div className="issue-line">
-                <Info size={15} />
-                <span>{summary.issues.length} 个目录因权限或符号链接被跳过</span>
-              </div>
+              <details className="issue-details">
+                <summary>
+                  <Info size={15} />
+                  <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
+                </summary>
+                {summary.issues.slice(0, 6).map((issue) => (
+                  <p key={issue.id}>{localizeIssue(issue, language)} · {issue.path}</p>
+                ))}
+                <div className="permission-note">
+                  <ShieldCheck size={15} />
+                  <span>{t(language, 'ui.permissionIssueNote')}</span>
+                </div>
+              </details>
             ) : (
               <div className="issue-line muted">
                 <CheckCircle2 size={15} />
-                <span>暂无权限错误或风险阻断项</span>
+                <span>{t(language, 'ui.noIssues')}</span>
               </div>
             )}
           </div>
@@ -308,14 +540,42 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         <section className="content-grid">
           <div className="candidate-panel">
             <div className="table-toolbar">
-              <div>
-                <span>清理候选项</span>
-                <strong>{filteredCandidates.length} 项</strong>
+              <div className="toolbar-summary">
+                <span>{t(language, 'ui.cleanupCandidates')}</span>
+                <strong>{t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })}</strong>
               </div>
-              <label className="search-box">
-                <Search size={16} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索路径或分类" />
-              </label>
+              <div className="toolbar-controls">
+                <label className="search-box">
+                  <Search size={16} />
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, 'ui.searchPlaceholder')} />
+                </label>
+                <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+                  <option value="size-desc">{t(language, 'ui.sortSize')}</option>
+                  <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
+                  <option value="name-asc">{t(language, 'ui.sortName')}</option>
+                </select>
+                <div className="toolbar-actions">
+                  <button
+                    className="secondary-button compact-action"
+                    onClick={toggleAllVisible}
+                    disabled={!filteredCandidates.some((candidate) => candidate.canClean)}
+                  >
+                    <CheckCircle2 size={15} />
+                    <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
+                  </button>
+                  <button
+                    className="primary-button danger compact-action batch-action"
+                    onClick={() => openCleanupPreview(selectedCleanableIds)}
+                    disabled={!selectedCleanableIds.length}
+                  >
+                    <Trash2 size={15} />
+                    <span>{t(language, 'ui.batchConfirmAction')}</span>
+                    <strong className="batch-count-pill">
+                      {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
+                    </strong>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {error && (
@@ -325,32 +585,47 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               </div>
             )}
 
+            {notice && (
+              <div className="message info-message">
+                <Info size={16} />
+                <span>{notice}</span>
+              </div>
+            )}
+
             {result && (
               <div className="message success-message">
                 <CheckCircle2 size={16} />
                 <span>
-                  已移动 {result.successCount} 项到废纸篓，估算空间 {formatBytes(result.cleanedBytes)}
-                  {result.failed.length ? `；${result.failed.length} 项失败` : ''}
+                  {t(language, 'ui.cleanupResult', {
+                    successCount: result.successCount.toLocaleString(language),
+                    bytes: formatBytes(result.cleanedBytes),
+                    failedText: result.failed.length
+                      ? t(language, 'ui.cleanupResultFailures', { count: result.failed.length.toLocaleString(language) })
+                      : ''
+                  })}
                 </span>
               </div>
             )}
 
-            <div className="candidate-table" role="table" aria-label="清理候选项列表">
+            <div className="candidate-table" role="table" aria-label={t(language, 'ui.cleanupCandidates')}>
               <div className="table-row table-head" role="row">
-                <span>条目</span>
-                <span>可删除性</span>
-                <span>大小</span>
-                <span>影响</span>
-                <span>操作</span>
+                <span>{t(language, 'ui.tableItem')}</span>
+                <span>{t(language, 'ui.tableSafety')}</span>
+                <span>{t(language, 'ui.tableSize')}</span>
+                <span>{t(language, 'ui.tableImpact')}</span>
+                <span>{t(language, 'ui.tableActions')}</span>
               </div>
               {filteredCandidates.map((candidate) => (
                 <CandidateRow
                   key={candidate.id}
                   candidate={candidate}
+                  language={language}
                   selected={selectedCandidate?.id === candidate.id}
+                  checked={selectedIds.has(candidate.id)}
                   onSelect={() => setSelectedCandidateId(candidate.id)}
+                  onToggleSelect={() => toggleCandidate(candidate.id)}
                   onReveal={() => reveal(candidate)}
-                  onCleanup={() => openCleanupPreview(candidate)}
+                  onCleanup={() => openCleanupPreview([candidate.id])}
                 />
               ))}
             </div>
@@ -358,16 +633,17 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             {!filteredCandidates.length && (
               <div className="empty-state">
                 <ShieldCheck size={28} />
-                <strong>{summary ? '当前筛选下没有候选项' : '尚未扫描存储空间'}</strong>
-                <span>{summary ? '切换分类或清空搜索条件查看其他条目。' : '点击右上角按钮开始本地扫描。'}</span>
+                <strong>{summary ? t(language, 'ui.emptyFilteredTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+                <span>{summary ? t(language, 'ui.emptyFilteredText') : t(language, 'ui.emptyInitialText')}</span>
               </div>
             )}
           </div>
 
           <CandidateInspector
             candidate={selectedCandidate}
+            language={language}
             onReveal={selectedCandidate ? () => reveal(selectedCandidate) : undefined}
-            onCleanup={selectedCandidate ? () => openCleanupPreview(selectedCandidate) : undefined}
+            onCleanup={selectedCandidate ? () => openCleanupPreview([selectedCandidate.id]) : undefined}
           />
         </section>
       </main>
@@ -375,9 +651,19 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       {preview && (
         <ConfirmationModal
           preview={preview}
+          language={language}
           isCleaning={isCleaning}
           onCancel={() => setPreview(null)}
           onConfirm={confirmCleanup}
+        />
+      )}
+      {showUpdateConfirm && localUpdateStatus && (
+        <LocalUpdateConfirmationModal
+          status={localUpdateStatus}
+          language={language}
+          isUpdating={isUpdating}
+          onCancel={() => setShowUpdateConfirm(false)}
+          onConfirm={runLocalUpdate}
         />
       )}
     </div>
@@ -386,10 +672,12 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
 function CategoryNavItem({
   category,
+  language,
   active,
   onSelect
 }: {
   category: CategorySummary
+  language: AppLanguage
   active: boolean
   onSelect: () => void
 }): JSX.Element {
@@ -397,7 +685,7 @@ function CategoryNavItem({
   return (
     <button className={active ? 'nav-item active' : 'nav-item'} onClick={onSelect}>
       <Icon size={17} />
-      <span>{category.name}</span>
+      <span>{localizeCategoryName(category, language)}</span>
       <strong>{formatBytes(category.sizeBytes)}</strong>
     </button>
   )
@@ -405,14 +693,20 @@ function CategoryNavItem({
 
 function CandidateRow({
   candidate,
+  language,
   selected,
+  checked,
   onSelect,
+  onToggleSelect,
   onReveal,
   onCleanup
 }: {
   candidate: CleanupCandidate
+  language: AppLanguage
   selected: boolean
+  checked: boolean
   onSelect: () => void
+  onToggleSelect: () => void
   onReveal: () => void
   onCleanup: () => void
 }): JSX.Element {
@@ -432,27 +726,45 @@ function CandidateRow({
       onKeyDown={handleKeyboardSelect}
     >
       <span className="candidate-title">
-        <strong>{candidate.title}</strong>
+        <span className="candidate-title-line">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!candidate.canClean}
+            aria-label={t(language, 'ui.selectCandidateAria', { title: candidate.title })}
+            onChange={(event) => {
+              event.stopPropagation()
+              onToggleSelect()
+            }}
+            onClick={(event) => event.stopPropagation()}
+          />
+          <strong>{candidate.title}</strong>
+        </span>
         <small>{candidate.pathPreview}</small>
       </span>
-      <SafetyBadge safety={candidate.safety} />
+      <SafetyBadge safety={candidate.safety} language={language} />
       <span className="size-cell">{formatBytes(candidate.sizeBytes)}</span>
-      <span className="impact-cell">{candidate.reason}</span>
+      <span className="impact-cell">{localizeCandidateReason(candidate, language)}</span>
       <span className="row-actions">
         <button
           className="icon-button"
-          title="在 Finder 中显示"
+          title={t(language, 'ui.revealInFinder')}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${candidate.title}`}
           onClick={(event) => {
             event.stopPropagation()
             onReveal()
           }}
         >
-          <ExternalLink size={15} />
+          <FolderOpen size={15} />
         </button>
         <button
           className="cleanup-button row-cleanup-button"
-          title={candidate.canClean ? candidate.actionLabel : '该项目不可清理'}
-          aria-label={candidate.canClean ? `${candidate.actionLabel}: ${candidate.title}` : `该项目不可清理: ${candidate.title}`}
+          title={candidate.canClean ? localizeCandidateAction(candidate, language) : t(language, 'ui.cannotClean')}
+          aria-label={
+            candidate.canClean
+              ? `${localizeCandidateAction(candidate, language)}: ${candidate.title}`
+              : `${t(language, 'ui.cannotClean')}: ${candidate.title}`
+          }
           disabled={!candidate.canClean}
           onClick={(event) => {
             event.stopPropagation()
@@ -460,30 +772,34 @@ function CandidateRow({
           }}
         >
           <Trash2 size={15} />
-          <span className="sr-only">{candidate.safety === 'safe' ? '清理' : candidate.canClean ? '确认' : '禁用'}</span>
+          <span className="sr-only">
+            {candidate.safety === 'safe' ? t(language, 'ui.cleanupSr') : candidate.canClean ? t(language, 'ui.confirmSr') : t(language, 'ui.disabledSr')}
+          </span>
         </button>
       </span>
     </div>
   )
 }
 
-function SafetyBadge({ safety }: { safety: SafetyLevel }): JSX.Element {
+function SafetyBadge({ safety, language }: { safety: SafetyLevel; language: AppLanguage }): JSX.Element {
   const meta = safetyMeta[safety]
   const Icon = meta.icon
   return (
     <span className={`safety-badge ${meta.className}`}>
       <Icon size={14} />
-      {meta.label}
+      {t(language, meta.labelKey)}
     </span>
   )
 }
 
 function CandidateInspector({
   candidate,
+  language,
   onReveal,
   onCleanup
 }: {
   candidate: CleanupCandidate | null
+  language: AppLanguage
   onReveal?: () => void
   onCleanup?: () => void
 }): JSX.Element {
@@ -491,8 +807,8 @@ function CandidateInspector({
     return (
       <aside className="inspector empty-inspector">
         <ShieldCheck size={30} />
-        <strong>等待选择条目</strong>
-        <span>扫描完成后，这里会显示可删除性、影响说明和清理确认入口。</span>
+        <strong>{t(language, 'ui.emptyInspectorTitle')}</strong>
+        <span>{t(language, 'ui.emptyInspectorText')}</span>
       </aside>
     )
   }
@@ -503,50 +819,70 @@ function CandidateInspector({
   return (
     <aside className="inspector">
       <div className="inspector-heading">
-        <span>{candidate.categoryName}</span>
-        <SafetyBadge safety={candidate.safety} />
+        <span>{localizeCandidateCategoryName(candidate, language)}</span>
+        <SafetyBadge safety={candidate.safety} language={language} />
       </div>
       <h2>{candidate.title}</h2>
       <p className="path-line">{candidate.pathPreview}</p>
 
       <div className="detail-stack">
         <div className="detail-item">
-          <span>估算大小</span>
+          <span>{t(language, 'ui.estimatedSize')}</span>
           <strong>{formatBytes(candidate.sizeBytes)}</strong>
         </div>
         <div className="detail-item">
-          <span>包含条目</span>
-          <strong>{candidate.itemCount.toLocaleString('zh-CN')}</strong>
+          <span>{t(language, 'ui.pathCount')}</span>
+          <strong>{candidate.pathCount.toLocaleString(language)}</strong>
         </div>
         <div className="detail-item">
-          <span>最近修改</span>
-          <strong>{candidate.lastModified ? new Date(candidate.lastModified).toLocaleDateString('zh-CN') : '未知'}</strong>
+          <span>{t(language, 'ui.lastModified')}</span>
+          <strong>{candidate.lastModified ? formatDate(candidate.lastModified, language) : t(language, 'ui.unknown')}</strong>
         </div>
       </div>
 
       <section className={`risk-box ${meta.className}`}>
         <div>
           <RiskIcon size={18} />
-          <strong>{meta.label}</strong>
+          <strong>{t(language, meta.labelKey)}</strong>
         </div>
-        <p>{meta.description}</p>
+        <p>{t(language, meta.descriptionKey)}</p>
       </section>
 
+      {candidate.safety === 'discouraged' && (
+        <section className="permission-policy-box">
+          <div>
+            <ShieldCheck size={17} />
+            <strong>{t(language, 'ui.permissionPolicyTitle')}</strong>
+          </div>
+          <p>{t(language, 'ui.permissionPolicyText')}</p>
+        </section>
+      )}
+
       <section className="impact-box">
-        <span>为什么可以处理</span>
-        <p>{candidate.reason}</p>
-        <span>可能影响</span>
-        <p>{candidate.impact}</p>
+        <span>{t(language, 'ui.whyCleanable')}</span>
+        <p>{localizeCandidateReason(candidate, language)}</p>
+        <span>{t(language, 'ui.possibleImpact')}</span>
+        <p>{localizeCandidateImpact(candidate, language)}</p>
+        <span>{t(language, 'ui.estimateSource')}</span>
+        <p>
+          {formatEstimateSource(candidate.estimateSource, language)} · {t(language, 'ui.snapshot')} {candidate.pathSnapshotHash.slice(0, 8)}
+        </p>
+        {candidate.blockedReason && (
+          <>
+            <span>{t(language, 'ui.whyDiscouraged')}</span>
+            <p>{localizeBlockedReason(candidate, language)}</p>
+          </>
+        )}
       </section>
 
       <div className="inspector-actions">
         <button className="secondary-button" onClick={onReveal}>
           <FolderOpen size={16} />
-          显示位置
+          {t(language, 'ui.revealLocation')}
         </button>
         <button className="primary-button danger" disabled={!candidate.canClean} onClick={onCleanup}>
           <Trash2 size={16} />
-          {candidate.actionLabel}
+          {localizeCandidateAction(candidate, language)}
         </button>
       </div>
     </aside>
@@ -555,11 +891,13 @@ function CandidateInspector({
 
 function ConfirmationModal({
   preview,
+  language,
   isCleaning,
   onCancel,
   onConfirm
 }: {
   preview: CleanupPreview
+  language: AppLanguage
   isCleaning: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -567,15 +905,15 @@ function ConfirmationModal({
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-        <button className="modal-close icon-button" onClick={onCancel} aria-label="关闭确认框">
+        <button className="modal-close icon-button" onClick={onCancel} aria-label={t(language, 'ui.closeModal')}>
           <X size={16} />
         </button>
         <div className="modal-icon">
           <Trash2 size={22} />
         </div>
-        <h2 id="confirm-title">再次确认移到废纸篓</h2>
+        <h2 id="confirm-title">{t(language, 'ui.confirmModalTitle')}</h2>
         <p>
-          你将处理 <strong>{preview.title}</strong>，估算大小 {formatBytes(preview.totalBytes)}。此操作不会永久删除文件。
+          {renderConfirmText(preview, language)}
         </p>
         <div className="preview-list">
           {preview.pathSamples.map((sample) => (
@@ -584,16 +922,63 @@ function ConfirmationModal({
         </div>
         <div className="modal-warning">
           <AlertTriangle size={16} />
-          <span>{preview.impact}</span>
+          <span>{localizePreviewImpact(preview, language)}</span>
         </div>
-        <p className="modal-footnote">{preview.warning}</p>
+        <p className="modal-footnote">{localizePreviewWarning(preview, language)}</p>
         <div className="modal-actions">
           <button className="secondary-button" onClick={onCancel} disabled={isCleaning}>
-            取消
+            {t(language, 'ui.cancel')}
           </button>
           <button className="primary-button danger" onClick={onConfirm} disabled={isCleaning}>
             {isCleaning ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
-            确认移到废纸篓
+            {t(language, 'ui.confirmMoveToTrash')}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function LocalUpdateConfirmationModal({
+  status,
+  language,
+  isUpdating,
+  onCancel,
+  onConfirm
+}: {
+  status: LocalUpdateStatus
+  language: AppLanguage
+  isUpdating: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}): JSX.Element {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
+        <button className="modal-close icon-button" onClick={onCancel} aria-label={t(language, 'ui.closeModal')}>
+          <X size={16} />
+        </button>
+        <div className="modal-icon update-icon">
+          <DownloadCloud size={22} />
+        </div>
+        <h2 id="update-confirm-title">{t(language, 'ui.localUpdateConfirmTitle')}</h2>
+        <p>{t(language, 'ui.localUpdateConfirmText', { installTarget: status.installTarget })}</p>
+        <div className="preview-list">
+          <span>{formatLocalUpdateVersion(status, language)}</span>
+          <span>{formatLocalUpdateBranch(status, language)}</span>
+          <span>{formatLocalUpdateTarget(status, language)}</span>
+        </div>
+        <div className="modal-warning">
+          <AlertTriangle size={16} />
+          <span>{localizeLocalUpdateStatus(status, language)}</span>
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onCancel} disabled={isUpdating}>
+            {t(language, 'ui.localUpdateCancelButton')}
+          </button>
+          <button className="primary-button" onClick={onConfirm} disabled={isUpdating}>
+            {isUpdating ? <Loader2 className="spin" size={16} /> : <DownloadCloud size={16} />}
+            {t(language, 'ui.localUpdateConfirmButton')}
           </button>
         </div>
       </section>
@@ -607,6 +992,158 @@ function formatBytes(bytes: number): string {
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
   const value = bytes / 1024 ** exponent
   return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
+}
+
+function readStoredLanguage(): AppLanguage {
+  return resolveLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? navigator.language)
+}
+
+function localizeCategoryName(category: CategorySummary, language: AppLanguage): string {
+  return category.nameKey ? t(language, category.nameKey) : category.name
+}
+
+function localizeCandidateCategoryName(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName
+}
+
+function localizeCandidateReason(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.reasonKey ? t(language, candidate.reasonKey, candidate.blockedReasonParams) : candidate.reason
+}
+
+function localizeCandidateImpact(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
+}
+
+function localizeCandidateAction(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.actionLabelKey ? t(language, candidate.actionLabelKey) : candidate.actionLabel
+}
+
+function localizeBlockedReason(candidate: CleanupCandidate, language: AppLanguage): string {
+  return candidate.blockedReasonKey ? t(language, candidate.blockedReasonKey, candidate.blockedReasonParams) : candidate.blockedReason ?? ''
+}
+
+function localizeIssue(issue: ScanIssue, language: AppLanguage): string {
+  return issue.messageKey ? t(language, issue.messageKey, issue.messageParams) : issue.message
+}
+
+function localizeProgress(progress: ScanProgress | null, language: AppLanguage): string | null {
+  if (!progress) return null
+  return progress.messageKey ? t(language, progress.messageKey, progress.messageParams) : progress.message
+}
+
+function localizeLocalUpdateProgress(progress: LocalUpdateProgress, language: AppLanguage): string {
+  return progress.messageKey ? t(language, progress.messageKey, progress.messageParams) : progress.message
+}
+
+function localizeLocalUpdateStatus(status: LocalUpdateStatus, language: AppLanguage): string {
+  return status.messageKey ? t(language, status.messageKey, status.messageParams) : status.message
+}
+
+function formatLocalUpdateState(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  if (!status) return t(language, 'ui.localUpdateUnknown')
+  if (status.state === 'available') return t(language, 'ui.localUpdateAvailable')
+  if (status.state === 'blocked') return t(language, 'ui.localUpdateBlocked')
+  if (status.state === 'current') return t(language, 'ui.localUpdateCurrent')
+  return t(language, 'ui.localUpdateUnknown')
+}
+
+function formatLocalUpdateVersion(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  const currentVersion = status?.currentVersion ?? 'unknown'
+  const latestVersion = status?.latestVersion ?? currentVersion
+  return t(language, 'ui.localUpdateVersion', { currentVersion, latestVersion })
+}
+
+function formatLocalUpdateBranch(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  return t(language, 'ui.localUpdateBranch', {
+    branch: status?.currentBranch ?? 'unknown',
+    upstream: status?.upstream ?? 'no upstream'
+  })
+}
+
+function formatLocalUpdateTarget(status: LocalUpdateStatus | null, language: AppLanguage): string {
+  return t(language, 'ui.localUpdateInstallTarget', {
+    installTarget: status?.installTarget ?? '~/Applications/Mac Cleaner.app'
+  })
+}
+
+function localizePreviewTitle(preview: CleanupPreview, language: AppLanguage): string {
+  return preview.titleKey ? t(language, preview.titleKey, preview.titleParams) : preview.title
+}
+
+function localizePreviewImpact(preview: CleanupPreview, language: AppLanguage): string {
+  return preview.impactKey ? t(language, preview.impactKey) : preview.impact
+}
+
+function localizePreviewWarning(preview: CleanupPreview, language: AppLanguage): string {
+  return preview.warningKey ? t(language, preview.warningKey) : preview.warning
+}
+
+function renderConfirmText(preview: CleanupPreview, language: AppLanguage): JSX.Element {
+  const title = localizePreviewTitle(preview, language)
+  const text = t(language, 'ui.confirmModalText', { title, size: formatBytes(preview.totalBytes) })
+  const [beforeTitle, rest = ''] = text.split(title)
+  return (
+    <>
+      {beforeTitle}
+      <strong>{title}</strong>
+      {rest}
+    </>
+  )
+}
+
+function formatDate(value: string, language: AppLanguage): string {
+  return new Date(value).toLocaleDateString(language)
+}
+
+function formatDateTime(value: string, language: AppLanguage): string {
+  return new Date(value).toLocaleString(language)
+}
+
+function sortCandidates(
+  candidates: CleanupCandidate[],
+  sortMode: 'size-desc' | 'risk-desc' | 'name-asc'
+): CleanupCandidate[] {
+  const riskScore: Record<SafetyLevel, number> = { discouraged: 3, confirm: 2, safe: 1 }
+  return [...candidates].sort((left, right) => {
+    if (sortMode === 'name-asc') return left.title.localeCompare(right.title)
+    if (sortMode === 'risk-desc') return riskScore[right.safety] - riskScore[left.safety] || right.sizeBytes - left.sizeBytes
+    return right.sizeBytes - left.sizeBytes
+  })
+}
+
+function formatEstimateSource(source: CleanupCandidate['estimateSource'], language: AppLanguage): string {
+  return t(language, `estimate.${source}`)
+}
+
+function readCleanupHistory(): Array<{ id: string; at: string; count: number; bytes: number }> {
+  try {
+    const raw = localStorage.getItem('mac-cleaner-cleanup-history')
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.slice(0, 10) : []
+  } catch {
+    return []
+  }
+}
+
+function recordCleanupHistory(
+  result: CleanupResult,
+  setCleanupHistory: (updater: (current: Array<{ id: string; at: string; count: number; bytes: number }>) => Array<{ id: string; at: string; count: number; bytes: number }>) => void
+): void {
+  if (!result.movedToTrash) return
+  setCleanupHistory((current) => {
+    const next = [
+      {
+        id: `${Date.now()}`,
+        at: new Date().toISOString(),
+        count: result.successCount,
+        bytes: result.cleanedBytes
+      },
+      ...current
+    ].slice(0, 10)
+    localStorage.setItem('mac-cleaner-cleanup-history', JSON.stringify(next))
+    return next
+  })
 }
 
 function formatError(error: unknown): string {
