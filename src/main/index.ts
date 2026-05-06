@@ -1,11 +1,19 @@
-import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, shell, type WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanMode, ScanProgress, ScanRequest } from '../shared/types'
+import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanMode, ScanProgress, ScanRequest, ThemePreference } from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
-import { isAppLanguage, readLanguagePreference, writeInstallTarget, writeLanguagePreference } from './services/languagePreference'
+import {
+  isAppLanguage,
+  isThemePreference,
+  readLanguagePreference,
+  readThemePreference,
+  writeInstallTarget,
+  writeLanguagePreference,
+  writeThemePreference
+} from './services/languagePreference'
 import { createLocalUpdateService } from './services/localUpdate'
 import type { ScanRun } from './services/scanner'
 import { scanStorage } from './services/scanner'
@@ -39,13 +47,20 @@ const localUpdateService = createLocalUpdateService()
 
 async function createWindow(): Promise<void> {
   const initialLanguage = await readLanguagePreference()
+  const initialThemePreference = await readThemePreference()
+  const initialAppTheme =
+    initialThemePreference && initialThemePreference !== 'system'
+      ? initialThemePreference
+      : nativeTheme.shouldUseDarkColors
+        ? 'hacker-dark'
+        : 'aurora-light'
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1100,
     minHeight: 720,
     title: 'Mac Cleaner',
-    backgroundColor: '#05080d',
+    backgroundColor: initialAppTheme === 'aurora-light' || initialAppTheme === 'solar-minimal' ? '#f7fbff' : '#05080d',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
@@ -58,10 +73,14 @@ async function createWindow(): Promise<void> {
   if (process.env.VITE_DEV_SERVER_URL) {
     const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL)
     if (initialLanguage) devServerUrl.searchParams.set('initialLanguage', initialLanguage)
+    if (initialThemePreference) devServerUrl.searchParams.set('initialThemePreference', initialThemePreference)
     mainWindow.loadURL(devServerUrl.toString())
   } else {
+    const query: Record<string, string> = {}
+    if (initialLanguage) query.initialLanguage = initialLanguage
+    if (initialThemePreference) query.initialThemePreference = initialThemePreference
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      query: initialLanguage ? { initialLanguage } : undefined
+      query: Object.keys(query).length ? query : undefined
     })
   }
 }
@@ -205,6 +224,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mac-cleaner:set-language-preference', async (_event, languageInput: unknown) => {
     return writeLanguagePreference(validateRequiredLanguage(languageInput))
   })
+
+  ipcMain.handle('mac-cleaner:get-theme-preference', async () => {
+    return readThemePreference()
+  })
+
+  ipcMain.handle('mac-cleaner:set-theme-preference', async (_event, themePreferenceInput: unknown) => {
+    return writeThemePreference(validateThemePreference(themePreferenceInput))
+  })
 }
 
 function emitLocalUpdateProgress(sender: WebContents, progress: LocalUpdateProgress): void {
@@ -278,6 +305,11 @@ function validateLanguage(value: unknown): AppLanguage {
 function validateRequiredLanguage(value: unknown): AppLanguage {
   if (isAppLanguage(value)) return value
   throw new Error('Invalid language parameter.')
+}
+
+function validateThemePreference(value: unknown): ThemePreference {
+  if (isThemePreference(value)) return value
+  throw new Error(t('zh-CN', 'main.invalidParam', { fieldName: 'themePreference' }))
 }
 
 async function revealPath(targetPath: string) {

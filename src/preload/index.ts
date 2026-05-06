@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, MacCleanerApi, ScanProgress, ScanRequest } from '../shared/types'
+import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, MacCleanerApi, ScanProgress, ScanRequest, ThemePreference } from '../shared/types'
 
 const api: MacCleanerApi = {
   scan: (request?: AppLanguage | ScanRequest) => ipcRenderer.invoke('mac-cleaner:scan', validateScanRequest(request)),
@@ -15,6 +15,8 @@ const api: MacCleanerApi = {
   configureLocalUpdate: (config: Partial<LocalUpdateConfig>) => ipcRenderer.invoke('mac-cleaner:configure-local-update', validateLocalUpdateConfig(config)),
   getLanguagePreference: () => ipcRenderer.invoke('mac-cleaner:get-language-preference'),
   setLanguagePreference: (language: AppLanguage) => ipcRenderer.invoke('mac-cleaner:set-language-preference', validateRequiredLanguage(language)),
+  getThemePreference: () => ipcRenderer.invoke('mac-cleaner:get-theme-preference'),
+  setThemePreference: (themePreference: ThemePreference) => ipcRenderer.invoke('mac-cleaner:set-theme-preference', validateThemePreference(themePreference)),
   onScanProgress: (listener: (progress: ScanProgress) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, progress: ScanProgress): void => listener(progress)
     ipcRenderer.on('mac-cleaner:scan-progress', wrapped)
@@ -55,6 +57,19 @@ function validateRequiredLanguage(language: AppLanguage): AppLanguage {
     return language
   }
   throw new Error('Invalid language argument')
+}
+
+function validateThemePreference(themePreference: ThemePreference): ThemePreference {
+  if (
+    themePreference === 'system' ||
+    themePreference === 'hacker-dark' ||
+    themePreference === 'aurora-light' ||
+    themePreference === 'graphite-pro' ||
+    themePreference === 'solar-minimal'
+  ) {
+    return themePreference
+  }
+  throw new Error('Invalid theme preference argument')
 }
 
 function validateScanRequest(request: AppLanguage | ScanRequest | undefined): AppLanguage | ScanRequest {
