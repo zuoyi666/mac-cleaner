@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanProgress } from '../shared/types'
@@ -26,6 +27,9 @@ const cleanupManager = createCleanupManager(
           (candidate) => candidate.id !== candidateId
         )
       }
+    },
+    getTrashPath() {
+      return currentScanRun ? path.join(currentScanRun.summary.homeDir, '.Trash') : undefined
     }
   },
   shell.trashItem
@@ -39,7 +43,7 @@ function createWindow(): void {
     minWidth: 1100,
     minHeight: 720,
     title: 'Mac Cleaner',
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#05080d',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
@@ -121,9 +125,15 @@ function registerIpcHandlers(): void {
     const pathToken = validateString(pathTokenInput, 'pathToken')
     const targetPath = currentScanRun?.pathTokens.get(pathToken)
     if (!targetPath) {
-      throw new Error(t('zh-CN', 'main.pathTokenExpired'))
+      return {
+        ok: false,
+        targetKind: 'unknown',
+        method: 'none',
+        message: t('zh-CN', 'main.pathTokenExpired'),
+        messageKey: 'main.pathTokenExpired'
+      }
     }
-    shell.showItemInFolder(targetPath)
+    return revealPath(targetPath)
   })
 
   ipcMain.handle('mac-cleaner:check-local-update', async (event, languageInput: unknown) => {
@@ -194,6 +204,55 @@ function validateLanguage(value: unknown): AppLanguage {
   throw new Error('Invalid language parameter.')
 }
 
+async function revealPath(targetPath: string) {
+  try {
+    const stats = await fs.lstat(targetPath)
+    if (stats.isDirectory()) {
+      const error = await shell.openPath(targetPath)
+      if (error) {
+        return {
+          ok: false,
+          targetKind: 'directory',
+          method: 'open-path',
+          message: t('zh-CN', 'main.revealFailed', { error }),
+          messageKey: 'main.revealFailed',
+          messageParams: { error }
+        }
+      }
+      return {
+        ok: true,
+        targetKind: 'directory',
+        method: 'open-path',
+        message: t('zh-CN', 'main.revealOpenedDirectory'),
+        messageKey: 'main.revealOpenedDirectory'
+      }
+    }
+    shell.showItemInFolder(targetPath)
+    return {
+      ok: true,
+      targetKind: 'file',
+      method: 'finder-reveal',
+      message: t('zh-CN', 'main.revealShownInFinder'),
+      messageKey: 'main.revealShownInFinder'
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return {
+      ok: false,
+      targetKind: code === 'ENOENT' ? 'missing' : 'unknown',
+      method: 'none',
+      message: t('zh-CN', code === 'ENOENT' ? 'main.revealMissing' : 'main.revealFailed', { error: formatError(error) }),
+      messageKey: code === 'ENOENT' ? 'main.revealMissing' : 'main.revealFailed',
+      messageParams: { error: formatError(error) }
+    }
+  }
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
 }

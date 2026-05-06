@@ -5,6 +5,9 @@ export type AppLanguage = 'zh-CN' | 'en-US'
 export type I18nParams = Record<string, string | number>
 
 export type EstimateSource = 'file-stat' | 'filesystem-walk' | 'partial-filesystem-walk' | 'blocked'
+export type CandidateDisplayKind = 'single' | 'group'
+export type RevealTargetKind = 'file' | 'directory' | 'missing' | 'unknown'
+export type RevealMethod = 'finder-reveal' | 'open-path' | 'none'
 
 export type CleanupKind =
   | 'cache'
@@ -37,10 +40,17 @@ export interface CleanupCandidate {
   id: string
   scanId: string
   title: string
+  titleKey?: string
+  titleParams?: I18nParams
   categoryId: string
   categoryName: string
   categoryNameKey?: string
   kind: CleanupKind
+  displayKind?: CandidateDisplayKind
+  groupCount?: number
+  groupSummaryKey?: string
+  groupSummaryParams?: I18nParams
+  largestItemBytes?: number
   safety: SafetyLevel
   canClean: boolean
   sizeBytes: number
@@ -139,9 +149,22 @@ export interface CleanupResult {
   candidateIds: string[]
   cleanedBytes: number
   successCount: number
+  verifiedRemovedCount: number
+  trashBeforeBytes?: number
+  trashAfterBytes?: number
+  trashDeltaBytes?: number
   failed: CleanupFailure[]
   movedToTrash: boolean
   needsRescan: boolean
+}
+
+export interface RevealResult {
+  ok: boolean
+  targetKind: RevealTargetKind
+  method: RevealMethod
+  message: string
+  messageKey?: string
+  messageParams?: I18nParams
 }
 
 export type LocalUpdateStage =
@@ -206,7 +229,7 @@ export interface MacCleanerApi {
   cancelScan(): Promise<void>
   cleanupPreview(candidateIds: string[], language?: AppLanguage): Promise<CleanupPreview>
   moveToTrash(candidateIds: string[], confirmationId: string, language?: AppLanguage): Promise<CleanupResult>
-  revealPath(pathToken: string): Promise<void>
+  revealPath(pathToken: string): Promise<RevealResult>
   checkForLocalUpdate(language?: AppLanguage): Promise<LocalUpdateStatus>
   runLocalSourceUpdate(language?: AppLanguage): Promise<LocalUpdateResult>
   configureLocalUpdate(config: Partial<LocalUpdateConfig>): Promise<LocalUpdateConfig>

@@ -273,18 +273,30 @@ export function createDemoApi(): MacCleanerApi {
         candidateIds,
         cleanedBytes,
         successCount: candidateIds.length,
+        verifiedRemovedCount: candidateIds.length,
+        trashBeforeBytes: demoSummary.trash.sizeBytes,
+        trashAfterBytes: demoSummary.trash.sizeBytes + cleanedBytes,
+        trashDeltaBytes: cleanedBytes,
         failed: [],
         movedToTrash: true,
         needsRescan: true
       }
     },
-    async revealPath() {},
+    async revealPath() {
+      return {
+        ok: true,
+        targetKind: 'directory',
+        method: 'open-path',
+        message: t('zh-CN', 'main.revealOpenedDirectory'),
+        messageKey: 'main.revealOpenedDirectory'
+      } as const
+    },
     async checkForLocalUpdate(language: AppLanguage = 'zh-CN'): Promise<LocalUpdateStatus> {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.2.0',
-        latestVersion: '0.2.0',
+        currentVersion: '0.3.0',
+        latestVersion: '0.3.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -308,8 +320,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.2.0',
-        currentVersion: '0.2.0',
+        previousVersion: '0.3.0',
+        currentVersion: '0.3.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),
@@ -342,6 +354,7 @@ function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCou
   return {
     ...candidate,
     scanId: demoScanId,
+    displayKind: candidate.displayKind ?? 'single',
     pathCount: candidate.itemCount,
     pathSamples: [candidate.pathPreview],
     pathSnapshotHash: `hash-${candidate.id}`,

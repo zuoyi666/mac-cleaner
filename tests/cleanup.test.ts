@@ -15,7 +15,9 @@ afterEach(async () => {
 describe('createCleanupManager', () => {
   it('requires a matching confirmation id before moving a candidate to trash', async () => {
     const { candidate, store } = await makeStoreCandidate()
-    const trashItem = vi.fn(async () => undefined)
+    const trashItem = vi.fn(async (targetPath: string) => {
+      await fs.rm(targetPath, { recursive: true, force: true })
+    })
     const manager = createCleanupManager(store, trashItem)
 
     await expect(manager.moveToTrash([candidate.id], 'wrong-confirmation')).rejects.toThrow('确认')
@@ -24,6 +26,7 @@ describe('createCleanupManager', () => {
     const result = await manager.moveToTrash([candidate.id], preview.confirmationId)
 
     expect(result.successCount).toBe(1)
+    expect(result.verifiedRemovedCount).toBe(1)
     expect(result.movedToTrash).toBe(true)
     expect(trashItem).toHaveBeenCalledWith(candidate.paths[0])
     expect(store.getCandidate(candidate.id)).toBeUndefined()
@@ -104,17 +107,58 @@ describe('createCleanupManager', () => {
     const second = makeCandidate({ id: 'second', pathName: secondPath, allowedRoot, sizeBytes: 6 })
     const store = makeStore(first, second)
     const trashItem = vi.fn(async (targetPath: string) => {
-      if (targetPath === secondPath) throw new Error('permission denied')
+      if (targetPath === secondPath) throw Object.assign(new Error('permission denied'), { code: 'EPERM' })
+      await fs.rm(targetPath, { recursive: true, force: true })
     })
     const manager = createCleanupManager(store, trashItem)
     const preview = manager.cleanupPreview([first.id, second.id])
     const result = await manager.moveToTrash([first.id, second.id], preview.confirmationId)
 
     expect(result.successCount).toBe(1)
+    expect(result.verifiedRemovedCount).toBe(1)
     expect(result.cleanedBytes).toBe(5)
     expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]?.errorKey).toBe('cleanup.failure.permissionDenied')
     expect(store.getCandidate(first.id)).toBeUndefined()
     expect(store.getCandidate(second.id)).toBe(second)
+  })
+
+  it('moves every path inside a grouped cleanup candidate and verifies source removal', async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mac-cleaner-cleanup-'))
+    tempRoots.push(homeDir)
+    const allowedRoot = path.join(homeDir, 'Library', 'Caches')
+    const firstPath = path.join(allowedRoot, 'small.one')
+    const secondPath = path.join(allowedRoot, 'small.two')
+    await writeFile(path.join(firstPath, 'cache.bin'), 'one')
+    await writeFile(path.join(secondPath, 'cache.bin'), 'two')
+
+    const candidate = makeCandidate({
+      id: 'grouped',
+      pathName: firstPath,
+      allowedRoot,
+      sizeBytes: 6,
+      displayKind: 'group',
+      groupCount: 2,
+      paths: [firstPath, secondPath],
+      pathSnapshots: [
+        { path: firstPath, sizeBytes: 3, itemCount: 1 },
+        { path: secondPath, sizeBytes: 3, itemCount: 1 }
+      ],
+      pathSamples: [firstPath, secondPath],
+      pathCount: 2,
+      itemCount: 2
+    })
+    const store = makeStore(candidate)
+    const manager = createCleanupManager(store, async (targetPath) => {
+      await fs.rm(targetPath, { recursive: true, force: true })
+    })
+    const preview = manager.cleanupPreview([candidate.id])
+    const result = await manager.moveToTrash([candidate.id], preview.confirmationId)
+
+    expect(result.successCount).toBe(2)
+    expect(result.verifiedRemovedCount).toBe(2)
+    expect(result.cleanedBytes).toBe(6)
+    expect(store.getCandidate(candidate.id)).toBeUndefined()
   })
 
   it('localizes cleanup preview and validation errors in English', async () => {
@@ -123,7 +167,7 @@ describe('createCleanupManager', () => {
 
     const preview = manager.cleanupPreview([candidate.id], 'en-US')
 
-    expect(preview.impact).toContain('related app may start')
+    expect(preview.impact).toContain('documents, photos, and projects are not removed')
     expect(preview.warning).toContain('moved to Trash')
     await expect(manager.moveToTrash([candidate.id], 'wrong-confirmation', 'en-US')).rejects.toThrow(
       'Cleanup confirmation has expired'

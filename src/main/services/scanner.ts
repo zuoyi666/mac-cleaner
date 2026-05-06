@@ -34,6 +34,9 @@ const DOWNLOAD_EXTENSIONS = new Set([
 const OLD_DOWNLOAD_DAYS = 30
 const TOP_LEVEL_MEASURE_CONCURRENCY = 4
 const MAX_CANDIDATE_SCAN_MS = 15_000
+const DEFAULT_STANDALONE_THRESHOLD_BYTES = 100 * 1024 * 1024
+const DOWNLOAD_STANDALONE_THRESHOLD_BYTES = 50 * 1024 * 1024
+const MAX_GROUP_PATH_SAMPLES = 8
 
 interface CategoryDefinition {
   id: string
@@ -243,12 +246,14 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       categoryCandidates.push(...discovered)
     }
 
-    for (const candidate of categoryCandidates) {
+    const displayCandidates = aggregateSmallCandidates(category, categoryCandidates, homeDir, language)
+
+    for (const candidate of displayCandidates) {
       candidates.set(candidate.id, candidate)
-      pathTokens.set(candidate.pathToken, candidate.paths[0])
+      pathTokens.set(candidate.pathToken, candidate.displayKind === 'group' ? candidate.allowedRoot : candidate.paths[0])
     }
 
-    categories.push(summarizeCategory(category, categoryCandidates, language))
+    categories.push(summarizeCategory(category, displayCandidates, language))
   }
 
   const trash = await scanTrash(homeDir, issues, {
@@ -524,6 +529,7 @@ function makeCandidate(
     categoryName: t(ctx.language, category.nameKey),
     categoryNameKey: category.nameKey,
     kind: category.kind,
+    displayKind: 'single',
     safety: category.safety,
     canClean: category.safety !== 'discouraged',
     sizeBytes: measured.sizeBytes,
@@ -570,6 +576,7 @@ function makeBlockedCandidate(
     categoryName,
     categoryNameKey: category.nameKey,
     kind: 'blocked',
+    displayKind: 'single',
     safety: 'discouraged',
     canClean: false,
     sizeBytes: 0,
@@ -593,6 +600,144 @@ function makeBlockedCandidate(
     allowedRoot: root,
     pathSnapshots: [pathSnapshot]
   }
+}
+
+function aggregateSmallCandidates(
+  category: CategoryDefinition,
+  candidates: InternalCandidate[],
+  homeDir: string,
+  language: AppLanguage
+): InternalCandidate[] {
+  const standalone: InternalCandidate[] = []
+  const buckets = new Map<string, InternalCandidate[]>()
+
+  for (const candidate of candidates) {
+    if (!shouldGroupCandidate(category, candidate)) {
+      standalone.push(candidate)
+      continue
+    }
+    const bucketKey = [
+      candidate.allowedRoot,
+      candidate.safety,
+      candidate.reasonKey ?? candidate.reason,
+      candidate.impactKey ?? candidate.impact,
+      candidate.actionLabelKey ?? candidate.actionLabel
+    ].join('::')
+    buckets.set(bucketKey, [...(buckets.get(bucketKey) ?? []), candidate])
+  }
+
+  const grouped: InternalCandidate[] = []
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) {
+      standalone.push(...bucket)
+      continue
+    }
+    grouped.push(makeGroupedCandidate(category, bucket, homeDir, language))
+  }
+
+  return [...standalone, ...grouped].sort((left, right) => bignessScore(right) - bignessScore(left))
+}
+
+function shouldGroupCandidate(category: CategoryDefinition, candidate: InternalCandidate): boolean {
+  if (!candidate.canClean || candidate.safety === 'discouraged') return false
+  const threshold = category.id === 'downloads' ? DOWNLOAD_STANDALONE_THRESHOLD_BYTES : DEFAULT_STANDALONE_THRESHOLD_BYTES
+  return candidate.sizeBytes < threshold
+}
+
+function makeGroupedCandidate(
+  category: CategoryDefinition,
+  items: InternalCandidate[],
+  homeDir: string,
+  language: AppLanguage
+): InternalCandidate {
+  const sortedItems = [...items].sort((left, right) => right.sizeBytes - left.sizeBytes)
+  const first = sortedItems[0]
+  const pathSnapshots = sortedItems.flatMap((candidate) => candidate.pathSnapshots)
+  const paths = sortedItems.flatMap((candidate) => candidate.paths)
+  const pathSamples = sortedItems
+    .flatMap((candidate) => candidate.pathSamples)
+    .slice(0, MAX_GROUP_PATH_SAMPLES)
+  const titleKey = groupTitleKey(category.id)
+  const titleParams = { count: sortedItems.length }
+  const sizeBytes = sortedItems.reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
+  const itemCount = sortedItems.reduce((sum, candidate) => sum + candidate.itemCount, 0)
+  const pathCount = sortedItems.reduce((sum, candidate) => sum + candidate.pathCount, 0)
+  const largestItemBytes = sortedItems.reduce((largest, candidate) => Math.max(largest, candidate.sizeBytes), 0)
+  const lastModified = maxIsoDate(sortedItems.map((candidate) => candidate.lastModified))
+  const pathSnapshotHash = hashPathSnapshots(pathSnapshots)
+
+  return {
+    id: stableId(`${category.id}:group:${first.safety}:${first.allowedRoot}`, paths.join('|')),
+    scanId: first.scanId,
+    title: t(language, titleKey, titleParams),
+    titleKey,
+    titleParams,
+    categoryId: category.id,
+    categoryName: t(language, category.nameKey),
+    categoryNameKey: category.nameKey,
+    kind: category.kind,
+    displayKind: 'group',
+    groupCount: sortedItems.length,
+    groupSummaryKey: 'candidate.group.summary',
+    groupSummaryParams: { count: sortedItems.length, largest: formatBytesForMessage(largestItemBytes) },
+    largestItemBytes,
+    safety: first.safety,
+    canClean: first.canClean,
+    sizeBytes,
+    itemCount,
+    pathCount,
+    pathPreview: t(language, 'candidate.group.preview', {
+      count: sortedItems.length,
+      path: compactPathForDisplay(first.paths[0], homeDir)
+    }),
+    pathSamples,
+    pathToken: crypto.randomUUID(),
+    pathSnapshotHash,
+    estimateSource: sortedItems.some((candidate) => candidate.estimateSource === 'partial-filesystem-walk')
+      ? 'partial-filesystem-walk'
+      : 'filesystem-walk',
+    reason: t(language, first.reasonKey),
+    reasonKey: first.reasonKey,
+    impact: t(language, first.impactKey),
+    impactKey: first.impactKey,
+    actionLabel: t(language, first.actionLabelKey),
+    actionLabelKey: first.actionLabelKey,
+    lastModified,
+    paths,
+    allowedRoot: first.allowedRoot,
+    pathSnapshots
+  }
+}
+
+function groupTitleKey(categoryId: string): string {
+  if (categoryId === 'caches') return 'candidate.group.caches.title'
+  if (categoryId === 'logs') return 'candidate.group.logs.title'
+  if (categoryId === 'diagnostics') return 'candidate.group.diagnostics.title'
+  if (categoryId === 'http-storage') return 'candidate.group.http-storage.title'
+  if (categoryId === 'saved-state') return 'candidate.group.saved-state.title'
+  if (categoryId === 'downloads') return 'candidate.group.downloads.title'
+  return 'candidate.group.generic.title'
+}
+
+function bignessScore(candidate: InternalCandidate): number {
+  return candidate.sizeBytes + (candidate.displayKind === 'group' ? 1 : 0)
+}
+
+function maxIsoDate(values: Array<string | undefined>): string | undefined {
+  const dates = values
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+  if (!dates.length) return undefined
+  return new Date(Math.max(...dates.map((date) => date.getTime()))).toISOString()
+}
+
+function formatBytesForMessage(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / 1024 ** exponent
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
 }
 
 function summarizeCategory(category: CategoryDefinition, candidates: InternalCandidate[], language: AppLanguage): CategorySummary {

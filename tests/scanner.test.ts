@@ -45,6 +45,24 @@ describe('scanStorage', () => {
     expect(oldInstaller?.safety).toBe('confirm')
   })
 
+  it('groups multiple small same-risk cache entries while keeping large entries separate', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'Caches', 'small.one', 'cache.bin'), 64)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Caches', 'small.two', 'cache.bin'), 96)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Caches', 'large.app', 'cache.bin'), 101 * 1024 * 1024)
+
+    const run = await scanStorage({ homeDir, now: fixedNow })
+    const grouped = run.summary.candidates.find((candidate) => candidate.displayKind === 'group' && candidate.categoryId === 'caches')
+    const large = run.summary.candidates.find((candidate) => candidate.title === 'large.app')
+
+    expect(grouped?.title).toContain('小体积用户缓存')
+    expect(grouped?.groupCount).toBe(2)
+    expect(grouped?.sizeBytes).toBe(160)
+    expect(grouped?.pathSamples).toHaveLength(2)
+    expect(large?.displayKind).toBe('single')
+    expect(large?.sizeBytes).toBe(101 * 1024 * 1024)
+  })
+
   it('does not double count diagnostic reports as logs', async () => {
     const homeDir = await makeHome()
     await writeSizedFile(path.join(homeDir, 'Library', 'Logs', 'app.log'), 64)
@@ -83,7 +101,7 @@ describe('scanStorage', () => {
     expect(category?.name).toBe('Web Cache Storage')
     expect(category?.nameKey).toBe('category.http-storage.name')
     expect(candidate?.categoryName).toBe('Web Cache Storage')
-    expect(candidate?.reason).toContain('HTTP storage may include')
+    expect(candidate?.reason).toContain('web-view data')
     expect(candidate?.impact).toContain('sign in again')
     expect(candidate?.actionLabel).toBe('Review and Move to Trash')
   })
