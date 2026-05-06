@@ -4,9 +4,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseLanguageArg, writeLanguagePreference } from './language-preference.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const installTarget = path.join(os.homedir(), 'Applications', 'Mac Cleaner.app')
+const requestedLanguage = parseLanguageArg(process.argv.slice(2))
 
 console.log('Mac Cleaner local install')
 console.log('免费本地构建，不需要 Apple Developer 账号。')
@@ -18,6 +20,11 @@ if (!(await pathExists(path.join(repoRoot, 'node_modules')))) {
 
 console.log('正在构建带图标的本地 App...')
 await run('npm', ['run', 'package:dir'])
+
+if (requestedLanguage) {
+  await writeLanguagePreference(requestedLanguage)
+  console.log(`已设置默认界面语言：${requestedLanguage}`)
+}
 
 const appPath = await findBuiltApp()
 console.log(`正在安装到 ${installTarget} ...`)

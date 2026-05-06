@@ -19,7 +19,7 @@ describe('local update service', () => {
     expect(status.state).toBe('available')
     expect(status.updateAvailable).toBe(true)
     expect(status.currentVersion).toBe('0.2.0')
-    expect(status.latestVersion).toBe('0.3.0')
+    expect(status.latestVersion).toBe('0.4.0')
     expect(status.message).toContain('New commits')
   })
 
@@ -122,7 +122,7 @@ function makeRunner({
     if (fullCommand === 'git status --porcelain --untracked-files=no') return ok(dirty ? ' M package.json' : '')
     if (fullCommand === 'git fetch --tags --prune') return ok('')
     if (fullCommand === 'git show origin/codex/reliability-upgrades:package.json') {
-      return ok(JSON.stringify({ name: 'mac-cleaner', version: '0.3.0' }))
+      return ok(JSON.stringify({ name: 'mac-cleaner', version: '0.4.0' }))
     }
     if (fullCommand === 'git merge-base --is-ancestor local-commit remote-commit') return diverged ? fail('diverged') : ok('')
     if (fullCommand === 'git pull --ff-only') return ok('')

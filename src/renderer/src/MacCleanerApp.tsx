@@ -265,9 +265,14 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     })
   }
 
-  function changeLanguage(nextLanguage: AppLanguage): void {
+  async function changeLanguage(nextLanguage: AppLanguage): Promise<void> {
     setLanguage(nextLanguage)
     localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage)
+    try {
+      await macCleaner.setLanguagePreference(nextLanguage)
+    } catch (preferenceError) {
+      setError(formatError(preferenceError))
+    }
   }
 
   async function reveal(candidate: CleanupCandidate): Promise<void> {
@@ -395,10 +400,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             <strong>{t(language, 'ui.settingsTitle')}</strong>
             <span>{t(language, 'ui.settingsSubtitle')}</span>
             <div className="language-toggle" aria-label={t(language, 'ui.languageLabel')}>
-              <button className={language === 'zh-CN' ? 'active' : ''} onClick={() => changeLanguage('zh-CN')}>
+              <button className={language === 'zh-CN' ? 'active' : ''} onClick={() => void changeLanguage('zh-CN')}>
                 {t(language, 'language.zh')}
               </button>
-              <button className={language === 'en-US' ? 'active' : ''} onClick={() => changeLanguage('en-US')}>
+              <button className={language === 'en-US' ? 'active' : ''} onClick={() => void changeLanguage('en-US')}>
                 {t(language, 'language.en')}
               </button>
             </div>
@@ -1050,6 +1055,8 @@ function formatBytes(bytes: number): string {
 }
 
 function readStoredLanguage(): AppLanguage {
+  const initialLanguage = new URLSearchParams(window.location.search).get('initialLanguage')
+  if (initialLanguage === 'zh-CN' || initialLanguage === 'en-US') return initialLanguage
   return resolveLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? navigator.language)
 }
 

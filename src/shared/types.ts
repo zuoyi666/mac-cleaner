@@ -233,6 +233,8 @@ export interface MacCleanerApi {
   checkForLocalUpdate(language?: AppLanguage): Promise<LocalUpdateStatus>
   runLocalSourceUpdate(language?: AppLanguage): Promise<LocalUpdateResult>
   configureLocalUpdate(config: Partial<LocalUpdateConfig>): Promise<LocalUpdateConfig>
+  getLanguagePreference(): Promise<AppLanguage | null>
+  setLanguagePreference(language: AppLanguage): Promise<AppLanguage>
   onScanProgress(listener: (progress: ScanProgress) => void): () => void
   onLocalUpdateProgress(listener: (progress: LocalUpdateProgress) => void): () => void
 }

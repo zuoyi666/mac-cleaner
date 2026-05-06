@@ -5,13 +5,13 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MacCleanerApp } from '../src/renderer/src/MacCleanerApp'
 import { demoSummary } from '../src/renderer/src/demoApi'
-import type { CleanupCandidate, CleanupPreview, LocalUpdateStatus, MacCleanerApi, ScanSummary } from '../src/shared/types'
+import type { AppLanguage, CleanupCandidate, CleanupPreview, LocalUpdateStatus, MacCleanerApi, ScanSummary } from '../src/shared/types'
 
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.3.0',
-  latestVersion: '0.3.0',
+  currentVersion: '0.4.0',
+  latestVersion: '0.4.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Applications/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -43,8 +43,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.3.0',
-      currentVersion: '0.3.0',
+      previousVersion: '0.4.0',
+      currentVersion: '0.4.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -54,6 +54,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
       repoPath: currentUpdateStatus.repoPath,
       installTarget: currentUpdateStatus.installTarget
     }),
+    getLanguagePreference: vi.fn().mockResolvedValue(null),
+    setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
     onScanProgress: vi.fn(() => () => undefined),
     onLocalUpdateProgress: vi.fn(() => () => undefined),
     ...overrides
@@ -62,6 +64,7 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
 
 describe('MacCleanerApp', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/')
     localStorage.clear()
     localStorage.setItem('mac-cleaner-language', 'zh-CN')
   })
@@ -102,8 +105,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.3.0',
-        currentVersion: '0.3.0',
+        previousVersion: '0.4.0',
+        currentVersion: '0.4.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -113,6 +116,8 @@ describe('MacCleanerApp', () => {
         repoPath: currentUpdateStatus.repoPath,
         installTarget: currentUpdateStatus.installTarget
       }),
+      getLanguagePreference: vi.fn().mockResolvedValue(null),
+      setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
@@ -174,8 +179,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.3.0',
-        currentVersion: '0.3.0',
+        previousVersion: '0.4.0',
+        currentVersion: '0.4.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -185,6 +190,8 @@ describe('MacCleanerApp', () => {
         repoPath: currentUpdateStatus.repoPath,
         installTarget: currentUpdateStatus.installTarget
       }),
+      getLanguagePreference: vi.fn().mockResolvedValue(null),
+      setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
@@ -289,11 +296,32 @@ describe('MacCleanerApp', () => {
   it('switches the current UI to English without rescanning', async () => {
     const user = userEvent.setup()
     const firstCandidate = demoSummary.candidates[0]
+    const api = makeApi({
+      cleanupPreview: vi.fn().mockResolvedValue({
+        candidateIds: [firstCandidate.id],
+        confirmationId: 'english-confirm',
+        scanId: demoSummary.scanId,
+        pathSnapshotHash: firstCandidate.pathSnapshotHash,
+        title: firstCandidate.title,
+        totalBytes: firstCandidate.sizeBytes,
+        pathCount: firstCandidate.pathCount,
+        pathSamples: [firstCandidate.pathPreview],
+        impact: firstCandidate.impact,
+        impactKey: firstCandidate.impactKey,
+        warning: '确认后会将这些项目移到废纸篓，不会永久删除。',
+        warningKey: 'cleanup.warning',
+        expiresAt: new Date(Date.now() + 300_000).toISOString()
+      })
+    })
 
-    render(<MacCleanerApp initialSummary={demoSummary} />)
+    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
     await user.click(screen.getByRole('button', { name: 'English' }))
 
+    await waitFor(() => {
+      expect(api.setLanguagePreference).toHaveBeenCalledWith('en-US')
+    })
+    expect(localStorage.getItem('mac-cleaner-language')).toBe('en-US')
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
     expect(screen.getAllByText('Review First')).not.toHaveLength(0)
@@ -304,13 +332,24 @@ describe('MacCleanerApp', () => {
     expect(screen.getByText(/After confirmation these items will be moved to Trash/)).toBeInTheDocument()
   })
 
+  it('uses the installer-provided initial language before legacy localStorage', async () => {
+    window.history.replaceState(null, '', '/?initialLanguage=en-US')
+    localStorage.setItem('mac-cleaner-language', 'zh-CN')
+
+    render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
+
+    expect(await screen.findByText('Up to date')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
+    expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
+  })
+
   it('shows local update availability and requires confirmation before syncing', async () => {
     const user = userEvent.setup()
     const availableStatus: LocalUpdateStatus = {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.3.0',
+      latestVersion: '0.4.0',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -325,17 +364,19 @@ describe('MacCleanerApp', () => {
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
         previousVersion: '0.2.0',
-        currentVersion: '0.3.0',
+        currentVersion: '0.4.0',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.3.0，即将重启。',
+        message: '已同步到 0.4.0，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.3.0' }
+        messageParams: { currentVersion: '0.4.0' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,
         installTarget: availableStatus.installTarget
       }),
+      getLanguagePreference: vi.fn().mockResolvedValue(null),
+      setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
