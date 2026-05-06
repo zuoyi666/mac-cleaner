@@ -17,7 +17,7 @@ if (!source || !target || !isAllowedTarget(target)) {
 await waitForParentExit(parentPid)
 await fs.mkdir(path.dirname(target), { recursive: true })
 await fs.rm(target, { recursive: true, force: true })
-await fs.cp(source, target, { recursive: true })
+await copyAppBundle(source, target)
 await fs.rm(path.dirname(source), { recursive: true, force: true }).catch(() => undefined)
 spawn('/usr/bin/open', [target], { detached: true, stdio: 'ignore', shell: false }).unref()
 
@@ -47,6 +47,23 @@ function isProcessAlive(pid) {
   } catch {
     return false
   }
+}
+
+function copyAppBundle(sourcePath, targetPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', ['--rsrc', '--extattr', '--acl', sourcePath, targetPath], {
+      shell: false,
+      stdio: 'inherit'
+    })
+    child.on('error', reject)
+    child.on('close', (exitCode) => {
+      if (exitCode === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`ditto failed with exit code ${exitCode ?? 1}`))
+    })
+  })
 }
 
 function isAllowedTarget(targetPath) {

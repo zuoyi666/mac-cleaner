@@ -47,10 +47,12 @@ describe('local update service', () => {
     const repoPath = await makeRepo()
     const commands: string[] = []
     const spawnDetached = vi.fn()
+    const copyAppBundle = vi.fn(async () => undefined)
     const service = createLocalUpdateService({
       repoPath,
       installTarget: makeInstallTarget(),
       commandRunner: makeRunner({ commands, buildRepoPath: repoPath }),
+      copyAppBundle,
       spawnDetached
     })
 
@@ -65,6 +67,7 @@ describe('local update service', () => {
         'npm run package:dir'
       ])
     )
+    expect(copyAppBundle).toHaveBeenCalledWith(expect.stringContaining('Mac Cleaner.app'), expect.stringContaining('Mac Cleaner.app'))
     expect(spawnDetached).toHaveBeenCalledWith('/usr/bin/env', expect.arrayContaining(['node', expect.stringContaining('install-local-app.mjs')]))
   })
 

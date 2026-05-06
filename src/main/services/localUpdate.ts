@@ -23,11 +23,13 @@ export interface CommandResult {
 }
 
 export type CommandRunner = (command: string, args: string[], options: { cwd: string }) => Promise<CommandResult>
+export type AppBundleCopier = (source: string, target: string) => Promise<void>
 
 export interface LocalUpdateServiceOptions {
   repoPath?: string
   installTarget?: string
   commandRunner?: CommandRunner
+  copyAppBundle?: AppBundleCopier
   spawnDetached?: (command: string, args: string[]) => void
 }
 
@@ -55,6 +57,7 @@ export function createLocalUpdateService(options: LocalUpdateServiceOptions = {}
     installTarget: options.installTarget ?? path.join(os.homedir(), 'Applications', PRODUCT_APP_NAME)
   })
   const runCommand = options.commandRunner ?? defaultCommandRunner
+  const copyAppBundle = options.copyAppBundle ?? copyAppBundleWithDitto
   const spawnDetached = options.spawnDetached ?? defaultSpawnDetached
   let updateRunning = false
 
@@ -111,7 +114,7 @@ export function createLocalUpdateService(options: LocalUpdateServiceOptions = {}
         const stagedApp = path.join(stagingRoot, PRODUCT_APP_NAME)
         await fs.rm(stagingRoot, { recursive: true, force: true })
         await fs.mkdir(stagingRoot, { recursive: true })
-        await fs.cp(builtApp, stagedApp, { recursive: true })
+        await copyAppBundle(builtApp, stagedApp)
 
         emit(onProgress, language, 'installing', 'localUpdate.progress.installing')
         const installerScript = path.join(config.repoPath, 'scripts', 'install-local-app.mjs')
@@ -372,6 +375,24 @@ function defaultSpawnDetached(command: string, args: string[]): void {
     env: process.env
   })
   child.unref()
+}
+
+function copyAppBundleWithDitto(source: string, target: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', ['--rsrc', '--extattr', '--acl', source, target], {
+      shell: false,
+      stdio: 'ignore',
+      env: process.env
+    })
+    child.on('error', reject)
+    child.on('close', (exitCode) => {
+      if (exitCode === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`ditto failed with exit code ${exitCode ?? 1}`))
+    })
+  })
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
