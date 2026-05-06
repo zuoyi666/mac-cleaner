@@ -78,10 +78,9 @@ const LANGUAGE_STORAGE_KEY = 'mac-cleaner-language'
 const THEME_STORAGE_KEY = 'mac-cleaner-theme-preference'
 
 const themeOptions: Array<{ value: ThemePreference; labelKey: string }> = [
-  { value: 'system', labelKey: 'theme.system' },
-  { value: 'hacker-dark', labelKey: 'theme.hackerDark' },
   { value: 'aurora-light', labelKey: 'theme.auroraLight' },
-  { value: 'graphite-pro', labelKey: 'theme.graphitePro' },
+  { value: 'hacker-dark', labelKey: 'theme.hackerDark' },
+  { value: 'neon-night', labelKey: 'theme.neonNight' },
   { value: 'solar-minimal', labelKey: 'theme.solarMinimal' }
 ]
 
@@ -118,7 +117,6 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readStoredThemePreference())
-  const [systemPrefersDark, setSystemPrefersDark] = useState(() => readSystemPrefersDark())
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'>('recommended')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -140,7 +138,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
   useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
 
-  const activeTheme = useMemo(() => resolveThemePreference(themePreference, systemPrefersDark), [themePreference, systemPrefersDark])
+  const activeTheme = themePreference
 
   useEffect(() => {
     if (hasInitialThemePreference()) return undefined
@@ -166,15 +164,6 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     document.documentElement.dataset.theme = activeTheme
     document.documentElement.style.colorScheme = isLightTheme(activeTheme) ? 'light' : 'dark'
   }, [activeTheme])
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)')
-    if (!mediaQuery) return undefined
-    const updateSystemTheme = (): void => setSystemPrefersDark(mediaQuery.matches)
-    updateSystemTheme()
-    mediaQuery.addEventListener?.('change', updateSystemTheme)
-    return () => mediaQuery.removeEventListener?.('change', updateSystemTheme)
-  }, [])
 
   useEffect(() => {
     if (nativeBridgeMissing) {
@@ -1430,24 +1419,15 @@ function readStoredThemePreference(): ThemePreference {
   if (isThemePreference(initialThemePreference)) return initialThemePreference
   const storedThemePreference = localStorage.getItem(THEME_STORAGE_KEY)
   if (isThemePreference(storedThemePreference)) return storedThemePreference
-  return 'system'
+  return 'aurora-light'
 }
 
 function hasInitialThemePreference(): boolean {
   return isThemePreference(new URLSearchParams(window.location.search).get('initialThemePreference'))
 }
 
-function readSystemPrefersDark(): boolean {
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-}
-
-function resolveThemePreference(themePreference: ThemePreference, systemPrefersDark: boolean): AppTheme {
-  if (themePreference === 'system') return systemPrefersDark ? 'hacker-dark' : 'aurora-light'
-  return themePreference
-}
-
 function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'system' || value === 'hacker-dark' || value === 'aurora-light' || value === 'graphite-pro' || value === 'solar-minimal'
+  return value === 'hacker-dark' || value === 'aurora-light' || value === 'neon-night' || value === 'solar-minimal'
 }
 
 function isLightTheme(theme: AppTheme): boolean {

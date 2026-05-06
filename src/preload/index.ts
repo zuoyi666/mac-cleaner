@@ -61,10 +61,9 @@ function validateRequiredLanguage(language: AppLanguage): AppLanguage {
 
 function validateThemePreference(themePreference: ThemePreference): ThemePreference {
   if (
-    themePreference === 'system' ||
     themePreference === 'hacker-dark' ||
     themePreference === 'aurora-light' ||
-    themePreference === 'graphite-pro' ||
+    themePreference === 'neon-night' ||
     themePreference === 'solar-minimal'
   ) {
     return themePreference

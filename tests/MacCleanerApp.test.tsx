@@ -10,8 +10,8 @@ import type { AppLanguage, CleanupCandidate, CleanupPreview, LocalUpdateStatus, 
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.7.0',
-  latestVersion: '0.7.0',
+  currentVersion: '0.7.1',
+  latestVersion: '0.7.1',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -50,8 +50,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.7.0',
-      currentVersion: '0.7.0',
+      previousVersion: '0.7.1',
+      currentVersion: '0.7.1',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -71,22 +71,9 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
   }
 }
 
-function mockPrefersDark(matches: boolean): void {
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches,
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
-    }))
-  })
-}
-
 describe('MacCleanerApp', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/')
-    mockPrefersDark(false)
     document.documentElement.removeAttribute('data-theme')
     document.documentElement.style.colorScheme = ''
     localStorage.clear()
@@ -136,8 +123,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.0',
-        currentVersion: '0.7.0',
+        previousVersion: '0.7.1',
+        currentVersion: '0.7.1',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -219,8 +206,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.0',
-        currentVersion: '0.7.0',
+        previousVersion: '0.7.1',
+        currentVersion: '0.7.1',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -411,17 +398,17 @@ describe('MacCleanerApp', () => {
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
   })
 
-  it('shows theme choices and follows the system theme by default', async () => {
+  it('shows theme choices and defaults to Aurora Light', async () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
     const themeSelect = screen.getByRole('combobox', { name: '皮肤主题' })
 
-    expect(themeSelect).toHaveValue('system')
-    expect(screen.getByRole('option', { name: '跟随系统' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '黑客终端' })).toBeInTheDocument()
+    expect(themeSelect).toHaveValue('aurora-light')
+    expect(screen.queryByRole('option', { name: '跟随系统' })).not.toBeInTheDocument()
     expect(screen.getByRole('option', { name: '极光浅色' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '石墨专业' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '黑客终端' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '霓虹夜城' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '日光极简' })).toBeInTheDocument()
     expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
@@ -447,24 +434,31 @@ describe('MacCleanerApp', () => {
   })
 
   it('uses the installer-provided initial theme before legacy localStorage', async () => {
-    window.history.replaceState(null, '', '/?initialThemePreference=graphite-pro')
+    window.history.replaceState(null, '', '/?initialThemePreference=neon-night')
     localStorage.setItem('mac-cleaner-theme-preference', 'solar-minimal')
 
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('graphite-pro')
-    expect(document.documentElement.dataset.theme).toBe('graphite-pro')
+    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('neon-night')
+    expect(document.documentElement.dataset.theme).toBe('neon-night')
   })
 
-  it('resolves system theme to Hacker when macOS is in dark mode', async () => {
-    mockPrefersDark(true)
+  it('falls back to Aurora when an old system preference is stored', async () => {
+    localStorage.setItem('mac-cleaner-theme-preference', 'system')
 
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('system')
-    expect(document.documentElement.dataset.theme).toBe('hacker-dark')
+    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('aurora-light')
+    expect(document.documentElement.dataset.theme).toBe('aurora-light')
+  })
+
+  it('falls back to Aurora when an old graphite URL preference is provided', async () => {
+    window.history.replaceState(null, '', '/?initialThemePreference=graphite-pro')
+    render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
+    expect(await screen.findByText('已是最新')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('aurora-light')
   })
 
   it('does not silently show demo cleanup candidates when the native bridge is missing', async () => {
@@ -490,7 +484,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.7.1',
+      latestVersion: '0.7.2',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -511,13 +505,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.7.0',
-        currentVersion: '0.7.1',
+        previousVersion: '0.7.1',
+        currentVersion: '0.7.2',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.7.1，即将重启。',
+        message: '已同步到 0.7.2，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.7.1' }
+        messageParams: { currentVersion: '0.7.2' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,
