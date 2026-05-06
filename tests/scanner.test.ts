@@ -124,6 +124,48 @@ describe('scanStorage', () => {
 
     expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('Documents'))).toBe(false)
   })
+
+  it('adds large user content to the storage map without making it cleanable', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Documents', 'LargeProject.mov'), 60 * 1024 * 1024, daysAgo(10))
+
+    const run = await scanStorage({ homeDir, now: fixedNow, mode: 'comprehensive' })
+    const insight = run.summary.insights.find((item) => item.pathPreview === '~/Documents')
+
+    expect(insight?.risk).toBe('review')
+    expect(insight?.recommendationKey).toBe('insight.userContent.recommendation')
+    expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('Documents'))).toBe(false)
+    expect(run.summary.coverage.mode).toBe('comprehensive')
+  })
+
+  it('groups scan issues and keeps permission-limited paths out of cleanup', async () => {
+    const homeDir = await makeHome()
+    const blockedDir = path.join(homeDir, 'Library', 'Caches', 'PrivateCache')
+    await writeSizedFile(path.join(blockedDir, 'secret.bin'), 128)
+    await fs.chmod(blockedDir, 0o000)
+
+    try {
+      const run = await scanStorage({ homeDir, now: fixedNow, mode: 'comprehensive' })
+      const permissionGroup = run.summary.issueGroups.find((group) => group.kind === 'permission')
+
+      expect(permissionGroup?.count).toBeGreaterThan(0)
+      expect(run.summary.candidates.every((candidate) => candidate.pathPreview !== '~/Library/Caches/PrivateCache')).toBe(true)
+    } finally {
+      await fs.chmod(blockedDir, 0o755).catch(() => undefined)
+    }
+  })
+
+  it('adds regeneratable developer caches as safe cleanup candidates', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'Developer', 'Xcode', 'DerivedData', 'DemoApp', 'build.bin'), 512)
+
+    const run = await scanStorage({ homeDir, now: fixedNow })
+    const candidate = run.summary.candidates.find((item) => item.categoryId === 'developer-caches')
+
+    expect(candidate?.safety).toBe('safe')
+    expect(candidate?.kind).toBe('developer-cache')
+    expect(candidate?.reasonKey).toBe('candidate.developer-cache.reason')
+  })
 })
 
 async function makeHome(): Promise<string> {

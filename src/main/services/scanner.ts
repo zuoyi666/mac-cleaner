@@ -8,10 +8,17 @@ import type {
   CleanupCandidate,
   CleanupKind,
   EstimateSource,
+  IssueGroupKind,
   SafetyLevel,
+  ScanCoverage,
   ScanIssue,
+  ScanIssueGroup,
+  ScanMode,
   ScanProgress,
   ScanSummary,
+  StorageInsight,
+  StorageInsightKind,
+  StorageInsightRisk,
   TrashSummary
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
@@ -37,6 +44,10 @@ const MAX_CANDIDATE_SCAN_MS = 15_000
 const DEFAULT_STANDALONE_THRESHOLD_BYTES = 100 * 1024 * 1024
 const DOWNLOAD_STANDALONE_THRESHOLD_BYTES = 50 * 1024 * 1024
 const MAX_GROUP_PATH_SAMPLES = 8
+const MAX_INSIGHT_SCAN_MS = 3_500
+const MAX_INSIGHTS = 80
+const INSIGHT_MIN_BYTES = 50 * 1024 * 1024
+const INSIGHT_MEASURE_CONCURRENCY = 3
 
 interface CategoryDefinition {
   id: string
@@ -69,6 +80,7 @@ export interface ScanOptions {
   homeDir?: string
   now?: Date
   language?: AppLanguage
+  mode?: ScanMode
   signal?: AbortSignal
   onProgress?: (progress: ScanProgress) => void
 }
@@ -102,6 +114,13 @@ interface MeasureContext {
   scanId: string
   homeDir: string
   language: AppLanguage
+}
+
+interface InsightScanResult {
+  insights: StorageInsight[]
+  roots: string[]
+  scannedRootCount: number
+  skippedRootCount: number
 }
 
 const makeCategories = (): CategoryDefinition[] => [
@@ -178,6 +197,24 @@ const makeCategories = (): CategoryDefinition[] => [
       const ageMs = now.getTime() - stats.mtime.getTime()
       return DOWNLOAD_EXTENSIONS.has(extension) && ageMs >= OLD_DOWNLOAD_DAYS * 24 * 60 * 60 * 1000
     }
+  },
+  {
+    id: 'developer-caches',
+    nameKey: 'category.developer-caches.name',
+    descriptionKey: 'category.developer-caches.description',
+    relativePaths: [
+      'Library/Developer/Xcode/DerivedData',
+      'Library/Caches/Homebrew',
+      'Library/Caches/pip',
+      'Library/pnpm/store',
+      '.npm',
+      '.cache/yarn'
+    ],
+    kind: 'developer-cache',
+    safety: 'safe',
+    reasonKey: 'candidate.developer-cache.reason',
+    impactKey: 'candidate.developer-cache.impact',
+    actionLabelKey: 'candidate.developer-cache.action'
   }
 ]
 
@@ -185,11 +222,13 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   const homeDir = options.homeDir ?? os.homedir()
   const now = options.now ?? new Date()
   const language = options.language ?? 'zh-CN'
+  const mode = options.mode ?? 'comprehensive'
   const scanId = crypto.randomUUID()
   const issues: ScanIssue[] = []
   const candidates = new Map<string, InternalCandidate>()
   const pathTokens = new Map<string, string>()
   const categories: CategorySummary[] = []
+  let insightScan: InsightScanResult = { insights: [], roots: [], scannedRootCount: 0, skippedRootCount: 0 }
   const progress = {
     scannedEntries: 0,
     measuredBytes: 0
@@ -270,6 +309,24 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     pathTokens.set(trash.pathToken, path.join(homeDir, '.Trash'))
   }
 
+  if (mode === 'comprehensive') {
+    insightScan = await scanUserSpaceInsights(homeDir, issues, {
+      signal: options.signal,
+      deadlineMs: Date.now() + MAX_INSIGHT_SCAN_MS,
+      issues,
+      progress,
+      onProgress: options.onProgress,
+      scanId,
+      homeDir,
+      language
+    })
+    for (const insight of insightScan.insights) {
+      if (insight.pathToken && insight.canReveal) {
+        pathTokens.set(insight.pathToken, expandDisplayPath(insight.pathPreview, homeDir))
+      }
+    }
+  }
+
   const disk = await getDiskSummary(homeDir)
   const publicCandidates = [...candidates.values()].map(stripInternalCandidate)
   const totalCleanableBytes = publicCandidates
@@ -295,6 +352,9 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       totalCleanableBytes,
       categories,
       candidates: publicCandidates,
+      insights: insightScan.insights,
+      issueGroups: groupScanIssues(issues, homeDir, language),
+      coverage: makeCoverage(mode, insightScan, progress, issues),
       issues,
       trash
     },
@@ -503,6 +563,296 @@ async function scanTrash(homeDir: string, issues: ScanIssue[], ctx: MeasureConte
     }
     return { sizeBytes: 0, itemCount: 0 }
   }
+}
+
+async function scanUserSpaceInsights(
+  homeDir: string,
+  issues: ScanIssue[],
+  ctx: MeasureContext
+): Promise<InsightScanResult> {
+  const roots = getUserSpaceInsightRoots(homeDir)
+  const insights: StorageInsight[] = []
+  let scannedRootCount = 0
+  let skippedRootCount = 0
+
+  for (const root of roots) {
+    throwIfAborted(ctx.signal)
+    ctx.onProgress?.({
+      scanId: ctx.scanId,
+      stage: 'scanning',
+      currentPath: compactPathForDisplay(root, homeDir),
+      message: t(ctx.language, 'progress.scanningSpaceMap'),
+      messageKey: 'progress.scanningSpaceMap',
+      scannedEntries: ctx.progress.scannedEntries,
+      measuredBytes: ctx.progress.measuredBytes
+    })
+
+    const rootInsights = await discoverInsightsForRoot(root, homeDir, issues, ctx)
+    if (rootInsights.length) scannedRootCount += 1
+    else skippedRootCount += 1
+    insights.push(...rootInsights)
+  }
+
+  const sortedInsights = insights
+    .sort((left, right) => right.sizeBytes - left.sizeBytes)
+    .slice(0, MAX_INSIGHTS)
+
+  return { insights: sortedInsights, roots: roots.map((root) => compactPathForDisplay(root, homeDir)), scannedRootCount, skippedRootCount }
+}
+
+function getUserSpaceInsightRoots(homeDir: string): string[] {
+  if (path.resolve(homeDir) !== path.resolve(os.homedir())) {
+    return [homeDir]
+  }
+  return uniqueExistingRoots([
+    homeDir,
+    '/Users/Shared',
+    '/Applications',
+    '/Library',
+    '/private/var/folders'
+  ])
+}
+
+function uniqueExistingRoots(roots: string[]): string[] {
+  const seen = new Set<string>()
+  const output: string[] = []
+  for (const root of roots) {
+    const resolved = path.resolve(root)
+    if (seen.has(resolved)) continue
+    seen.add(resolved)
+    output.push(resolved)
+  }
+  return output
+}
+
+async function discoverInsightsForRoot(
+  root: string,
+  homeDir: string,
+  issues: ScanIssue[],
+  ctx: MeasureContext
+): Promise<StorageInsight[]> {
+  let rootStats
+  try {
+    rootStats = await fs.lstat(root)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      issues.push(makeIssue(root, 'issue.cannotAccess', 'warning', ctx.language, { error: formatError(error) }))
+      return [makeBlockedInsight(root, homeDir, ctx, formatError(error))]
+    }
+    return []
+  }
+
+  if (rootStats.isSymbolicLink()) {
+    issues.push(makeIssue(root, 'issue.skipSymlinkRoot', 'info', ctx.language))
+    return []
+  }
+
+  if (rootStats.isFile()) {
+    const measured = measureSingleStats(rootStats)
+    return [makeStorageInsight(root, homeDir, measured, ctx, true)]
+  }
+
+  if (!rootStats.isDirectory()) return []
+
+  let entries: string[]
+  try {
+    entries = await fs.readdir(root)
+  } catch (error) {
+    issues.push(makeIssue(root, 'issue.cannotReadDir', 'warning', ctx.language, { error: formatError(error) }))
+    return [makeBlockedInsight(root, homeDir, ctx, formatError(error))]
+  }
+
+  const insights: StorageInsight[] = []
+  await mapWithConcurrency(entries, INSIGHT_MEASURE_CONCURRENCY, async (entry) => {
+    throwIfAborted(ctx.signal)
+    const entryPath = path.join(root, entry)
+    if (shouldSkipInsightPath(entryPath, homeDir)) {
+      issues.push(makeIssue(entryPath, 'issue.skipProtectedPath', 'info', ctx.language))
+      return
+    }
+
+    let stats
+    try {
+      stats = await fs.lstat(entryPath)
+    } catch (error) {
+      issues.push(makeIssue(entryPath, 'issue.cannotReadEntry', 'warning', ctx.language, { error: formatError(error) }))
+      return
+    }
+
+    if (stats.isSymbolicLink()) {
+      issues.push(makeIssue(entryPath, 'issue.skipSymlink', 'info', ctx.language))
+      return
+    }
+
+    if (stats.dev !== rootStats.dev) {
+      issues.push(makeIssue(entryPath, 'issue.skipDifferentVolume', 'info', ctx.language))
+      return
+    }
+
+    const measured = stats.isDirectory()
+      ? await measurePath(entryPath, { ...ctx, deadlineMs: Date.now() + MAX_INSIGHT_SCAN_MS })
+      : measureSingleStats(stats)
+    if (measured.sizeBytes <= 0) return
+    if (measured.sizeBytes < INSIGHT_MIN_BYTES && measured.estimateSource !== 'partial-filesystem-walk') return
+
+    insights.push(makeStorageInsight(entryPath, homeDir, measured, ctx, true))
+  })
+
+  return insights
+}
+
+function shouldSkipInsightPath(entryPath: string, homeDir: string): boolean {
+  const resolved = path.resolve(entryPath)
+  const protectedRoots = ['/System', '/bin', '/sbin', '/usr', '/dev', '/Volumes', '/cores']
+  if (protectedRoots.some((root) => resolved === root || resolved.startsWith(`${root}/`))) return true
+  if (resolved === path.join(homeDir, '.Trash')) return true
+  return false
+}
+
+function makeBlockedInsight(root: string, homeDir: string, ctx: MeasureContext, error: string): StorageInsight {
+  const title = path.basename(root) || root
+  return {
+    id: stableId('insight-blocked', root),
+    scanId: ctx.scanId,
+    title,
+    kind: 'blocked',
+    risk: 'not-recommended',
+    sizeBytes: 0,
+    itemCount: 0,
+    pathCount: 1,
+    pathPreview: compactPathForDisplay(root, homeDir),
+    pathSamples: [compactPathForDisplay(root, homeDir)],
+    canReveal: false,
+    readable: false,
+    estimateSource: 'blocked',
+    reason: t(ctx.language, 'insight.blocked.reason', { error }),
+    reasonKey: 'insight.blocked.reason',
+    reasonParams: { error },
+    recommendation: t(ctx.language, 'insight.blocked.recommendation'),
+    recommendationKey: 'insight.blocked.recommendation'
+  }
+}
+
+function makeStorageInsight(
+  targetPath: string,
+  homeDir: string,
+  measured: MeasuredPath,
+  ctx: MeasureContext,
+  readable: boolean
+): StorageInsight {
+  const classification = classifyInsight(targetPath, homeDir)
+  return {
+    id: stableId('insight', targetPath),
+    scanId: ctx.scanId,
+    title: path.basename(targetPath) || targetPath,
+    kind: classification.kind,
+    risk: classification.risk,
+    sizeBytes: measured.sizeBytes,
+    itemCount: measured.itemCount,
+    pathCount: measured.pathCount,
+    pathPreview: compactPathForDisplay(targetPath, homeDir),
+    pathSamples: [compactPathForDisplay(targetPath, homeDir)],
+    pathToken: crypto.randomUUID(),
+    canReveal: readable,
+    readable,
+    estimateSource: measured.estimateSource,
+    reason: t(ctx.language, classification.reasonKey),
+    reasonKey: classification.reasonKey,
+    recommendation: t(ctx.language, classification.recommendationKey),
+    recommendationKey: classification.recommendationKey,
+    lastModified: measured.lastModified?.toISOString()
+  }
+}
+
+function classifyInsight(targetPath: string, homeDir: string): {
+  kind: StorageInsightKind
+  risk: StorageInsightRisk
+  reasonKey: string
+  recommendationKey: string
+} {
+  const normalized = path.resolve(targetPath)
+  const basename = path.basename(normalized)
+  const relativeToHome = path.relative(homeDir, normalized)
+  const isInHome = relativeToHome && !relativeToHome.startsWith('..') && !path.isAbsolute(relativeToHome)
+  const homeParts = isInHome ? relativeToHome.split(path.sep) : []
+
+  if (normalized.startsWith('/Applications') || basename.endsWith('.app')) {
+    return {
+      kind: 'application',
+      risk: 'not-recommended',
+      reasonKey: 'insight.application.reason',
+      recommendationKey: 'insight.application.recommendation'
+    }
+  }
+
+  if (isPrivacyOrImportantPath(normalized, homeDir)) {
+    return {
+      kind: 'privacy-data',
+      risk: 'not-recommended',
+      reasonKey: 'insight.privacy.reason',
+      recommendationKey: 'insight.privacy.recommendation'
+    }
+  }
+
+  if (normalized.includes('/Caches/') || normalized.endsWith('/Caches')) {
+    return {
+      kind: 'system-support',
+      risk: 'safe-opportunity',
+      reasonKey: 'insight.cache.reason',
+      recommendationKey: 'insight.cache.recommendation'
+    }
+  }
+
+  if (homeParts[0] === 'Desktop' || homeParts[0] === 'Documents' || homeParts[0] === 'Downloads') {
+    return {
+      kind: homeParts[0] === 'Downloads' ? 'large-file' : 'user-content',
+      risk: 'review',
+      reasonKey: 'insight.userContent.reason',
+      recommendationKey: 'insight.userContent.recommendation'
+    }
+  }
+
+  if (normalized.includes('/Developer/') || normalized.includes('/.npm') || normalized.includes('/.cache/')) {
+    return {
+      kind: 'developer-data',
+      risk: 'review',
+      reasonKey: 'insight.developerData.reason',
+      recommendationKey: 'insight.developerData.recommendation'
+    }
+  }
+
+  if (normalized.startsWith('/Library') || normalized.startsWith('/private/var') || homeParts[0] === 'Library') {
+    return {
+      kind: 'system-support',
+      risk: 'not-recommended',
+      reasonKey: 'insight.systemSupport.reason',
+      recommendationKey: 'insight.systemSupport.recommendation'
+    }
+  }
+
+  return {
+    kind: 'directory',
+    risk: 'review',
+    reasonKey: 'insight.directory.reason',
+    recommendationKey: 'insight.directory.recommendation'
+  }
+}
+
+function isPrivacyOrImportantPath(targetPath: string, homeDir: string): boolean {
+  const importantFragments = [
+    '/Pictures',
+    '/Movies',
+    '/Music',
+    '/Library/Mail',
+    '/Library/Messages',
+    '/Library/Safari',
+    '/Library/Photos',
+    '/Library/Containers/com.docker',
+    '/Library/Developer/Xcode/Archives'
+  ]
+  const relative = path.relative(homeDir, targetPath)
+  const homeRelative = relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? `/${relative}` : targetPath
+  return importantFragments.some((fragment) => homeRelative === fragment || homeRelative.startsWith(`${fragment}/`))
 }
 
 function makeCandidate(
@@ -716,6 +1066,7 @@ function groupTitleKey(categoryId: string): string {
   if (categoryId === 'http-storage') return 'candidate.group.http-storage.title'
   if (categoryId === 'saved-state') return 'candidate.group.saved-state.title'
   if (categoryId === 'downloads') return 'candidate.group.downloads.title'
+  if (categoryId === 'developer-caches') return 'candidate.group.developer-caches.title'
   return 'candidate.group.generic.title'
 }
 
@@ -757,9 +1108,79 @@ function summarizeCategory(category: CategoryDefinition, candidates: InternalCan
   }
 }
 
+function groupScanIssues(issues: ScanIssue[], homeDir: string, language: AppLanguage): ScanIssueGroup[] {
+  const groups = new Map<IssueGroupKind, ScanIssue[]>()
+  for (const issue of issues) {
+    const kind = classifyIssue(issue)
+    groups.set(kind, [...(groups.get(kind) ?? []), issue])
+  }
+
+  return [...groups.entries()].map(([kind, groupIssues]) => {
+    const messageParams = { count: groupIssues.length }
+    return {
+      id: `issue-group-${kind}`,
+      kind,
+      title: t(language, issueGroupTitleKey(kind), messageParams),
+      titleKey: issueGroupTitleKey(kind),
+      message: t(language, issueGroupMessageKey(kind), messageParams),
+      messageKey: issueGroupMessageKey(kind),
+      messageParams,
+      severity: groupIssues.some((issue) => issue.severity === 'error') ? 'error' : groupIssues.some((issue) => issue.severity === 'warning') ? 'warning' : 'info',
+      count: groupIssues.length,
+      pathSamples: groupIssues.slice(0, 6).map((issue) => compactPathForDisplay(issue.path, homeDir))
+    }
+  })
+}
+
+function classifyIssue(issue: ScanIssue): IssueGroupKind {
+  const haystack = `${issue.messageKey ?? ''} ${issue.message}`.toLowerCase()
+  if (haystack.includes('eperm') || haystack.includes('eacces') || haystack.includes('permission') || haystack.includes('operation not permitted')) {
+    return 'permission'
+  }
+  if (issue.messageKey === 'issue.measureTimeout') return 'timeout'
+  if (issue.messageKey === 'issue.skipSymlink' || issue.messageKey === 'issue.skipSymlinkRoot') return 'symlink'
+  if (issue.messageKey === 'issue.skipProtectedPath' || issue.messageKey === 'issue.skipDifferentVolume') return 'protected'
+  return 'other'
+}
+
+function issueGroupTitleKey(kind: IssueGroupKind): string {
+  return `issueGroup.${kind}.title`
+}
+
+function issueGroupMessageKey(kind: IssueGroupKind): string {
+  return `issueGroup.${kind}.message`
+}
+
+function makeCoverage(
+  mode: ScanMode,
+  insightScan: InsightScanResult,
+  progress: MeasureContext['progress'],
+  issues: ScanIssue[]
+): ScanCoverage {
+  return {
+    mode,
+    roots: insightScan.roots,
+    scannedRootCount: insightScan.scannedRootCount,
+    skippedRootCount: insightScan.skippedRootCount,
+    scannedEntries: progress.scannedEntries,
+    measuredBytes: progress.measuredBytes,
+    inaccessibleCount: issues.filter((issue) => classifyIssue(issue) === 'permission').length,
+    timeoutCount: issues.filter((issue) => classifyIssue(issue) === 'timeout').length,
+    symlinkCount: issues.filter((issue) => classifyIssue(issue) === 'symlink').length,
+    protectedCount: issues.filter((issue) => classifyIssue(issue) === 'protected').length,
+    insightCount: insightScan.insights.length
+  }
+}
+
 function stripInternalCandidate(candidate: InternalCandidate): CleanupCandidate {
   const { paths: _paths, allowedRoot: _allowedRoot, pathSnapshots: _pathSnapshots, ...publicCandidate } = candidate
   return publicCandidate
+}
+
+function expandDisplayPath(displayPath: string, homeDir: string): string {
+  if (displayPath === '~') return homeDir
+  if (displayPath.startsWith(`~${path.sep}`)) return path.join(homeDir, displayPath.slice(2))
+  return displayPath
 }
 
 function hashPathSnapshots(snapshots: PathSnapshot[]): string {

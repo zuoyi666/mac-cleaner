@@ -1,14 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, MacCleanerApi, ScanProgress } from '../shared/types'
+import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, MacCleanerApi, ScanProgress, ScanRequest } from '../shared/types'
 
 const api: MacCleanerApi = {
-  scan: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:scan', validateLanguage(language)),
+  scan: (request?: AppLanguage | ScanRequest) => ipcRenderer.invoke('mac-cleaner:scan', validateScanRequest(request)),
   cancelScan: () => ipcRenderer.invoke('mac-cleaner:cancel-scan'),
   cleanupPreview: (candidateIds: string[], language?: AppLanguage) =>
     ipcRenderer.invoke('mac-cleaner:cleanup-preview', validateCandidateIds(candidateIds), validateLanguage(language)),
   moveToTrash: (candidateIds: string[], confirmationId: string, language?: AppLanguage) =>
     ipcRenderer.invoke('mac-cleaner:move-to-trash', validateCandidateIds(candidateIds), validateString(confirmationId), validateLanguage(language)),
   revealPath: (pathToken: string) => ipcRenderer.invoke('mac-cleaner:reveal-path', validateString(pathToken)),
+  openFullDiskAccessSettings: () => ipcRenderer.invoke('mac-cleaner:open-full-disk-access-settings'),
   checkForLocalUpdate: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:check-local-update', validateLanguage(language)),
   runLocalSourceUpdate: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:run-local-update', validateLanguage(language)),
   configureLocalUpdate: (config: Partial<LocalUpdateConfig>) => ipcRenderer.invoke('mac-cleaner:configure-local-update', validateLocalUpdateConfig(config)),
@@ -54,6 +55,22 @@ function validateRequiredLanguage(language: AppLanguage): AppLanguage {
     return language
   }
   throw new Error('Invalid language argument')
+}
+
+function validateScanRequest(request: AppLanguage | ScanRequest | undefined): AppLanguage | ScanRequest {
+  if (typeof request === 'string' || request === undefined) return validateLanguage(request)
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    throw new Error('Invalid scan request')
+  }
+  const language = request.language === undefined ? undefined : validateLanguage(request.language)
+  const mode = request.mode === undefined || request.mode === 'standard' || request.mode === 'comprehensive' ? request.mode : undefined
+  if (request.mode !== undefined && mode === undefined) {
+    throw new Error('Invalid scan mode')
+  }
+  return {
+    language: language ?? 'zh-CN',
+    mode: mode ?? 'comprehensive'
+  }
 }
 
 function validateLocalUpdateConfig(config: Partial<LocalUpdateConfig>): Partial<LocalUpdateConfig> {

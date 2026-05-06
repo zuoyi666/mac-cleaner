@@ -2,7 +2,7 @@
 
 [中文](README.zh-CN.md) | English
 
-Mac Cleaner is a free, open-source, local visual macOS storage cleanup assistant built with Electron, React, and TypeScript. It scans low-risk user-level storage locations, explains what each cleanup candidate means, and only moves files to Trash after an explicit second confirmation.
+Mac Cleaner is a free, open-source, local visual macOS storage cleanup assistant built with Electron, React, and TypeScript. It builds a user-space storage map for the startup disk, explains large items in plain language, and only moves clearly curated cleanup candidates to Trash after an explicit second confirmation.
 
 ## Install With English UI
 
@@ -49,7 +49,22 @@ You can still switch to Chinese from the Local Settings card inside the app. Thi
 
 ## Current Scan Scope
 
-The current release intentionally keeps scope conservative:
+Current scan results are split into two layers:
+
+- `Safe Cleanup`: only explicit safe or review-required candidates get cleanup buttons.
+- `Storage Map`: large user-space directories and files are explained and locatable, but never automatically cleaned.
+
+The storage map scans these accessible areas by default:
+
+- the current user home `~`
+- `/Users/Shared`
+- `/Applications`
+- `/Library`
+- `/private/var/folders`
+
+System-protected core paths, external volumes, symbolic links, and content whose safety cannot be confirmed are skipped or explained only. Full Disk Access is optional: it helps the app see more directories, but it does not make those directories automatically cleanable.
+
+Safe Cleanup candidates come from fixed safe locations and rules:
 
 - `~/Library/Caches`
 - `~/Library/Logs`
@@ -57,6 +72,8 @@ The current release intentionally keeps scope conservative:
 - `~/Library/Logs/CrashReporter`
 - `~/Library/HTTPStorages` (requires confirmation because it can include cookies, sessions, or site data)
 - `~/Library/Saved Application State`
+- `~/Library/Developer/Xcode/DerivedData`
+- developer caches such as `~/Library/Caches/Homebrew`, `~/Library/Caches/pip`, `~/.npm`, and `~/.cache/yarn`
 - old installer/archive files in `~/Downloads`
 - `~/.Trash` size is reported only; the app does not empty Trash
 
@@ -66,7 +83,7 @@ Each cleanup item is labelled as:
 - `Review First`: user-visible or potentially useful generated/downloaded data
 - `Not Recommended`: blocked, inaccessible, unsupported, or unclear-risk data
 
-Small same-kind items are grouped by default so the app does not flood you with dozens of tiny files. Large safe caches and old installers stay visible as individual rows.
+Small same-kind items are grouped by default so the app does not flood you with dozens of tiny files. Large safe caches, developer caches, and old installers stay prioritized; photos, mail, messages, project folders, Docker images, Xcode Archives, app bundles, and ordinary large files only appear in the storage map.
 
 ## Language
 
@@ -147,7 +164,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.5.1` fixes a reliability issue where the desktop app could show sample scan results when the local filesystem bridge failed to load. `v0.5.0` changes the default install location to Desktop, allows first-install directory selection, and keeps language-directed install commands. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.6.0` adds a startup-disk user-space storage map, grouped permission issues, Full Disk Access guidance, and safe developer-cache candidates. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 
