@@ -4,10 +4,22 @@ export type AppLanguage = 'zh-CN' | 'en-US'
 
 export type I18nParams = Record<string, string | number>
 
+export type ScanMode = 'standard' | 'comprehensive'
 export type EstimateSource = 'file-stat' | 'filesystem-walk' | 'partial-filesystem-walk' | 'blocked'
 export type CandidateDisplayKind = 'single' | 'group'
 export type RevealTargetKind = 'file' | 'directory' | 'missing' | 'unknown'
 export type RevealMethod = 'finder-reveal' | 'open-path' | 'none'
+export type StorageInsightRisk = 'safe-opportunity' | 'review' | 'not-recommended'
+export type StorageInsightKind =
+  | 'directory'
+  | 'application'
+  | 'large-file'
+  | 'user-content'
+  | 'developer-data'
+  | 'system-support'
+  | 'privacy-data'
+  | 'blocked'
+export type IssueGroupKind = 'permission' | 'timeout' | 'symlink' | 'protected' | 'other'
 
 export type CleanupKind =
   | 'cache'
@@ -16,6 +28,7 @@ export type CleanupKind =
   | 'http-storage'
   | 'saved-state'
   | 'download-archive'
+  | 'developer-cache'
   | 'trash'
   | 'blocked'
 
@@ -82,6 +95,59 @@ export interface ScanIssue {
   severity: 'info' | 'warning' | 'error'
 }
 
+export interface ScanIssueGroup {
+  id: string
+  kind: IssueGroupKind
+  title: string
+  titleKey?: string
+  message: string
+  messageKey?: string
+  messageParams?: I18nParams
+  severity: 'info' | 'warning' | 'error'
+  count: number
+  pathSamples: string[]
+}
+
+export interface ScanCoverage {
+  mode: ScanMode
+  roots: string[]
+  scannedRootCount: number
+  skippedRootCount: number
+  scannedEntries: number
+  measuredBytes: number
+  inaccessibleCount: number
+  timeoutCount: number
+  symlinkCount: number
+  protectedCount: number
+  insightCount: number
+}
+
+export interface StorageInsight {
+  id: string
+  scanId: string
+  title: string
+  titleKey?: string
+  titleParams?: I18nParams
+  kind: StorageInsightKind
+  risk: StorageInsightRisk
+  sizeBytes: number
+  itemCount: number
+  pathCount: number
+  pathPreview: string
+  pathSamples: string[]
+  pathToken?: string
+  canReveal: boolean
+  readable: boolean
+  estimateSource: EstimateSource
+  reason: string
+  reasonKey?: string
+  reasonParams?: I18nParams
+  recommendation: string
+  recommendationKey?: string
+  recommendationParams?: I18nParams
+  lastModified?: string
+}
+
 export interface TrashSummary {
   sizeBytes: number
   itemCount: number
@@ -103,6 +169,9 @@ export interface ScanSummary {
   totalCleanableBytes: number
   categories: CategorySummary[]
   candidates: CleanupCandidate[]
+  insights: StorageInsight[]
+  issueGroups: ScanIssueGroup[]
+  coverage: ScanCoverage
   issues: ScanIssue[]
   trash: TrashSummary
 }
@@ -117,6 +186,11 @@ export interface ScanProgress {
   percent?: number
   scannedEntries?: number
   measuredBytes?: number
+}
+
+export interface ScanRequest {
+  language?: AppLanguage
+  mode?: ScanMode
 }
 
 export interface CleanupPreview {
@@ -225,11 +299,12 @@ export interface LocalUpdateResult {
 }
 
 export interface MacCleanerApi {
-  scan(language?: AppLanguage): Promise<ScanSummary>
+  scan(request?: AppLanguage | ScanRequest): Promise<ScanSummary>
   cancelScan(): Promise<void>
   cleanupPreview(candidateIds: string[], language?: AppLanguage): Promise<CleanupPreview>
   moveToTrash(candidateIds: string[], confirmationId: string, language?: AppLanguage): Promise<CleanupResult>
   revealPath(pathToken: string): Promise<RevealResult>
+  openFullDiskAccessSettings(): Promise<RevealResult>
   checkForLocalUpdate(language?: AppLanguage): Promise<LocalUpdateStatus>
   runLocalSourceUpdate(language?: AppLanguage): Promise<LocalUpdateResult>
   configureLocalUpdate(config: Partial<LocalUpdateConfig>): Promise<LocalUpdateConfig>

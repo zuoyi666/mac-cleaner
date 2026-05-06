@@ -34,8 +34,11 @@ import type {
   RevealResult,
   SafetyLevel,
   ScanProgress,
+  ScanIssueGroup,
   ScanIssue,
-  ScanSummary
+  ScanSummary,
+  StorageInsight,
+  StorageInsightRisk
 } from '../../shared/types'
 import { resolveLanguage, t } from '../../shared/i18n'
 import { createDemoApi, demoSummary } from './demoApi'
@@ -77,7 +80,14 @@ const categoryIcons: Record<string, typeof Archive> = {
   diagnostics: AlertTriangle,
   'http-storage': Gauge,
   'saved-state': Clock3,
-  downloads: FolderOpen
+  downloads: FolderOpen,
+  'developer-caches': Gauge
+}
+
+const insightRiskClass: Record<StorageInsightRisk, string> = {
+  'safe-opportunity': 'safe',
+  review: 'confirm',
+  'not-recommended': 'discouraged'
 }
 
 export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.Element {
@@ -92,6 +102,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   )
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
+  const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null)
+  const [resultView, setResultView] = useState<'cleanup' | 'map'>('cleanup')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [query, setQuery] = useState('')
@@ -139,6 +151,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   const categories = summary?.categories ?? []
   const candidates = summary?.candidates ?? []
+  const insights = summary?.insights ?? []
 
   const filteredCandidates = useMemo(() => {
     const filtered = candidates.filter((candidate) => {
@@ -163,6 +176,27 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     return filteredCandidates[0] ?? null
   }, [candidates, filteredCandidates, selectedCandidateId])
 
+  const filteredInsights = useMemo(() => {
+    const lowerQuery = query.trim().toLowerCase()
+    return insights.filter((insight) => {
+      return (
+        !lowerQuery ||
+        insight.title.toLowerCase().includes(lowerQuery) ||
+        insight.pathPreview.toLowerCase().includes(lowerQuery) ||
+        localizeInsightReason(insight, language).toLowerCase().includes(lowerQuery) ||
+        localizeInsightRecommendation(insight, language).toLowerCase().includes(lowerQuery)
+      )
+    })
+  }, [insights, query, language])
+
+  const selectedInsight = useMemo(() => {
+    if (selectedInsightId) {
+      const selected = insights.find((insight) => insight.id === selectedInsightId)
+      if (selected) return selected
+    }
+    return filteredInsights[0] ?? null
+  }, [insights, filteredInsights, selectedInsightId])
+
   useEffect(() => {
     if (!selectedCandidateId && filteredCandidates[0]) {
       setSelectedCandidateId(filteredCandidates[0].id)
@@ -171,6 +205,15 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setSelectedCandidateId(filteredCandidates[0]?.id ?? null)
     }
   }, [candidates, filteredCandidates, selectedCandidateId])
+
+  useEffect(() => {
+    if (!selectedInsightId && filteredInsights[0]) {
+      setSelectedInsightId(filteredInsights[0].id)
+    }
+    if (selectedInsightId && !insights.some((insight) => insight.id === selectedInsightId)) {
+      setSelectedInsightId(filteredInsights[0]?.id ?? null)
+    }
+  }, [insights, filteredInsights, selectedInsightId])
 
   const totalCandidates = candidates.length
   const selectedCleanableIds = useMemo(
@@ -189,10 +232,11 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     setProgress({ stage: 'starting', message: t(language, 'progress.prepare'), messageKey: 'progress.prepare' })
 
     try {
-      const nextSummary = await macCleaner.scan(language)
+      const nextSummary = await macCleaner.scan({ language, mode: 'comprehensive' })
       setSummary(nextSummary)
       setSelectedCategoryId('all')
       setSelectedCandidateId(nextSummary.candidates[0]?.id ?? null)
+      setSelectedInsightId(nextSummary.insights[0]?.id ?? null)
       setSelectedIds(new Set())
     } catch (scanError) {
       setError(formatError(scanError))
@@ -230,7 +274,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setPreview(null)
       recordCleanupHistory(cleanupResult, setCleanupHistory)
       if (!isBrowserPreview) {
-        const nextSummary = await macCleaner.scan(language)
+        const nextSummary = await macCleaner.scan({ language, mode: 'comprehensive' })
         setSummary(nextSummary)
         setSelectedIds(new Set())
       } else {
@@ -292,6 +336,30 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     } catch (revealError) {
       setNotice(null)
       setError(formatError(revealError))
+    }
+  }
+
+  async function revealInsight(insight: StorageInsight): Promise<void> {
+    if (!insight.pathToken) {
+      setNotice(t(language, 'ui.revealUnavailable'))
+      return
+    }
+    try {
+      const revealResult = await macCleaner.revealPath(insight.pathToken)
+      handleRevealResult(revealResult)
+    } catch (revealError) {
+      setNotice(null)
+      setError(formatError(revealError))
+    }
+  }
+
+  async function openFullDiskAccessSettings(): Promise<void> {
+    setError(null)
+    try {
+      const result = await macCleaner.openFullDiskAccessSettings()
+      handleRevealResult(result)
+    } catch (settingsError) {
+      setError(formatError(settingsError))
     }
   }
 
@@ -541,19 +609,43 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 </span>
               </div>
             </div>
-            {summary?.issues.length ? (
+            {summary?.coverage && (
+              <div className="coverage-line">
+                {t(language, 'ui.coverageLine', {
+                  scanned: summary.coverage.scannedRootCount.toLocaleString(language),
+                  skipped: summary.coverage.skippedRootCount.toLocaleString(language),
+                  blocked: summary.coverage.inaccessibleCount.toLocaleString(language)
+                })}
+              </div>
+            )}
+            {summary?.issueGroups?.length ? (
               <details className="issue-details">
                 <summary>
                   <Info size={15} />
                   <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
                 </summary>
-                {summary.issues.slice(0, 6).map((issue) => (
-                  <p key={issue.id}>{localizeIssue(issue, language)} · {issue.path}</p>
+                {summary.issueGroups.map((group) => (
+                  <div className="issue-group-row" key={group.id}>
+                    <strong>{localizeIssueGroupTitle(group, language)}</strong>
+                    <p>{localizeIssueGroupMessage(group, language)}</p>
+                    {group.pathSamples.slice(0, 4).map((sample) => (
+                      <code key={sample}>{sample}</code>
+                    ))}
+                  </div>
                 ))}
                 <div className="permission-note">
                   <ShieldCheck size={15} />
                   <span>{t(language, 'ui.permissionIssueNote')}</span>
                 </div>
+                {summary.issueGroups.some((group) => group.kind === 'permission') && (
+                  <div className="permission-cta">
+                    <p>{t(language, 'ui.fullDiskAccessHint')}</p>
+                    <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
+                      <ShieldCheck size={14} />
+                      {t(language, 'ui.fullDiskAccessCta')}
+                    </button>
+                  </div>
+                )}
               </details>
             ) : (
               <div className="issue-line muted">
@@ -566,10 +658,24 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
         <section className="content-grid">
           <div className="candidate-panel">
+            <div className="result-tabs" role="tablist" aria-label={t(language, 'ui.storageOverview')}>
+              <button className={resultView === 'cleanup' ? 'active' : ''} onClick={() => setResultView('cleanup')}>
+                <ShieldCheck size={15} />
+                {t(language, 'ui.viewCleanup')}
+              </button>
+              <button className={resultView === 'map' ? 'active' : ''} onClick={() => setResultView('map')}>
+                <HardDrive size={15} />
+                {t(language, 'ui.viewMap')}
+              </button>
+            </div>
             <div className="table-toolbar">
               <div className="toolbar-summary">
-                <span>{t(language, 'ui.cleanupCandidates')}</span>
-                <strong>{t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })}</strong>
+                <span>{resultView === 'cleanup' ? t(language, 'ui.cleanupCandidates') : t(language, 'ui.spaceMapTitle')}</span>
+                <strong>
+                  {resultView === 'cleanup'
+                    ? t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })
+                    : t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })}
+                </strong>
               </div>
               <div className="toolbar-controls">
                 <label className="search-box">
@@ -582,7 +688,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
                   <option value="name-asc">{t(language, 'ui.sortName')}</option>
                 </select>
-                <div className="toolbar-actions">
+                {resultView === 'cleanup' && (
+                  <div className="toolbar-actions">
                   <button
                     className="secondary-button compact-action"
                     onClick={toggleAllVisible}
@@ -602,7 +709,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                       {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
                     </strong>
                   </button>
-                </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -656,44 +764,86 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               </div>
             )}
 
-            <div className="candidate-table" role="table" aria-label={t(language, 'ui.cleanupCandidates')}>
-              <div className="table-row table-head" role="row">
-                <span>{t(language, 'ui.tableItem')}</span>
-                <span>{t(language, 'ui.tableSafety')}</span>
-                <span>{t(language, 'ui.tableSize')}</span>
-                <span>{t(language, 'ui.tableImpact')}</span>
-                <span>{t(language, 'ui.tableActions')}</span>
-              </div>
-              {filteredCandidates.map((candidate) => (
-                <CandidateRow
-                  key={candidate.id}
-                  candidate={candidate}
-                  language={language}
-                  selected={selectedCandidate?.id === candidate.id}
-                  checked={selectedIds.has(candidate.id)}
-                  onSelect={() => setSelectedCandidateId(candidate.id)}
-                  onToggleSelect={() => toggleCandidate(candidate.id)}
-                  onReveal={() => reveal(candidate)}
-                  onCleanup={() => openCleanupPreview([candidate.id])}
-                />
-              ))}
-            </div>
+            {resultView === 'cleanup' ? (
+              <>
+                <div className="candidate-table" role="table" aria-label={t(language, 'ui.cleanupCandidates')}>
+                  <div className="table-row table-head" role="row">
+                    <span>{t(language, 'ui.tableItem')}</span>
+                    <span>{t(language, 'ui.tableSafety')}</span>
+                    <span>{t(language, 'ui.tableSize')}</span>
+                    <span>{t(language, 'ui.tableImpact')}</span>
+                    <span>{t(language, 'ui.tableActions')}</span>
+                  </div>
+                  {filteredCandidates.map((candidate) => (
+                    <CandidateRow
+                      key={candidate.id}
+                      candidate={candidate}
+                      language={language}
+                      selected={selectedCandidate?.id === candidate.id}
+                      checked={selectedIds.has(candidate.id)}
+                      onSelect={() => setSelectedCandidateId(candidate.id)}
+                      onToggleSelect={() => toggleCandidate(candidate.id)}
+                      onReveal={() => reveal(candidate)}
+                      onCleanup={() => openCleanupPreview([candidate.id])}
+                    />
+                  ))}
+                </div>
 
-            {!filteredCandidates.length && (
-              <div className="empty-state">
-                <ShieldCheck size={28} />
-                <strong>{summary ? t(language, 'ui.emptyFilteredTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
-                <span>{summary ? t(language, 'ui.emptyFilteredText') : t(language, 'ui.emptyInitialText')}</span>
-              </div>
+                {!filteredCandidates.length && (
+                  <div className="empty-state">
+                    <ShieldCheck size={28} />
+                    <strong>{summary ? t(language, 'ui.emptyFilteredTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+                    <span>{summary ? t(language, 'ui.emptyFilteredText') : t(language, 'ui.emptyInitialText')}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="candidate-table insight-table" role="table" aria-label={t(language, 'ui.spaceMapTitle')}>
+                  <div className="table-row table-head" role="row">
+                    <span>{t(language, 'ui.tableItem')}</span>
+                    <span>{t(language, 'ui.tableSafety')}</span>
+                    <span>{t(language, 'ui.tableSize')}</span>
+                    <span>{t(language, 'ui.tableImpact')}</span>
+                    <span>{t(language, 'ui.tableActions')}</span>
+                  </div>
+                  {filteredInsights.map((insight) => (
+                    <InsightRow
+                      key={insight.id}
+                      insight={insight}
+                      language={language}
+                      selected={selectedInsight?.id === insight.id}
+                      onSelect={() => setSelectedInsightId(insight.id)}
+                      onReveal={() => revealInsight(insight)}
+                    />
+                  ))}
+                </div>
+
+                {!filteredInsights.length && (
+                  <div className="empty-state">
+                    <HardDrive size={28} />
+                    <strong>{summary ? t(language, 'ui.spaceMapEmptyTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+                    <span>{summary ? t(language, 'ui.spaceMapEmptyText') : t(language, 'ui.emptyInitialText')}</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          <CandidateInspector
-            candidate={selectedCandidate}
-            language={language}
-            onReveal={selectedCandidate ? () => reveal(selectedCandidate) : undefined}
-            onCleanup={selectedCandidate ? () => openCleanupPreview([selectedCandidate.id]) : undefined}
-          />
+          {resultView === 'cleanup' ? (
+            <CandidateInspector
+              candidate={selectedCandidate}
+              language={language}
+              onReveal={selectedCandidate ? () => reveal(selectedCandidate) : undefined}
+              onCleanup={selectedCandidate ? () => openCleanupPreview([selectedCandidate.id]) : undefined}
+            />
+          ) : (
+            <InsightInspector
+              insight={selectedInsight}
+              language={language}
+              onReveal={selectedInsight ? () => revealInsight(selectedInsight) : undefined}
+            />
+          )}
         </section>
       </main>
 
@@ -838,6 +988,64 @@ function CandidateRow({
   )
 }
 
+function InsightRow({
+  insight,
+  language,
+  selected,
+  onSelect,
+  onReveal
+}: {
+  insight: StorageInsight
+  language: AppLanguage
+  selected: boolean
+  onSelect: () => void
+  onReveal: () => void
+}): JSX.Element {
+  const handleKeyboardSelect = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect()
+    }
+  }
+
+  return (
+    <div
+      className={selected ? 'table-row candidate-row selected' : 'table-row candidate-row'}
+      role="row"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleKeyboardSelect}
+    >
+      <span className="candidate-title">
+        <span className="candidate-title-line">
+          <strong>{localizeInsightTitle(insight, language)}</strong>
+        </span>
+        <small>{insight.pathPreview}</small>
+      </span>
+      <span className={`safety-badge ${insightRiskClass[insight.risk]}`}>
+        <Info size={14} />
+        {t(language, `ui.mapRisk.${insight.risk}`)}
+      </span>
+      <span className="size-cell">{formatBytes(insight.sizeBytes)}</span>
+      <span className="impact-cell">{localizeInsightRecommendation(insight, language)}</span>
+      <span className="row-actions">
+        <button
+          className="icon-button"
+          title={t(language, 'ui.revealInFinder')}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${localizeInsightTitle(insight, language)}`}
+          disabled={!insight.canReveal}
+          onClick={(event) => {
+            event.stopPropagation()
+            onReveal()
+          }}
+        >
+          <FolderOpen size={15} />
+        </button>
+      </span>
+    </div>
+  )
+}
+
 function SafetyBadge({ safety, language }: { safety: SafetyLevel; language: AppLanguage }): JSX.Element {
   const meta = safetyMeta[safety]
   const Icon = meta.icon
@@ -953,6 +1161,79 @@ function CandidateInspector({
         <button className="primary-button danger" disabled={!candidate.canClean} onClick={onCleanup}>
           <Trash2 size={16} />
           {localizeCandidateAction(candidate, language)}
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+function InsightInspector({
+  insight,
+  language,
+  onReveal
+}: {
+  insight: StorageInsight | null
+  language: AppLanguage
+  onReveal?: () => void
+}): JSX.Element {
+  if (!insight) {
+    return (
+      <aside className="inspector empty-inspector">
+        <HardDrive size={30} />
+        <strong>{t(language, 'ui.spaceMapEmptyTitle')}</strong>
+        <span>{t(language, 'ui.spaceMapEmptyText')}</span>
+      </aside>
+    )
+  }
+
+  return (
+    <aside className="inspector">
+      <div className="inspector-heading">
+        <span>{t(language, 'ui.spaceMapTitle')}</span>
+        <span className={`safety-badge ${insightRiskClass[insight.risk]}`}>
+          <Info size={14} />
+          {t(language, `ui.mapRisk.${insight.risk}`)}
+        </span>
+      </div>
+      <h2>{localizeInsightTitle(insight, language)}</h2>
+      <p className="path-line">{insight.pathPreview}</p>
+
+      <div className="detail-stack">
+        <div className="detail-item">
+          <span>{t(language, 'ui.estimatedSize')}</span>
+          <strong>{formatBytes(insight.sizeBytes)}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.pathCount')}</span>
+          <strong>{insight.pathCount.toLocaleString(language)}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.insightReadable')}</span>
+          <strong>{insight.readable ? t(language, 'ui.insightReadableYes') : t(language, 'ui.insightReadableNo')}</strong>
+        </div>
+      </div>
+
+      <section className={`risk-box ${insightRiskClass[insight.risk]}`}>
+        <div>
+          <ShieldCheck size={18} />
+          <strong>{t(language, `ui.mapRisk.${insight.risk}`)}</strong>
+        </div>
+        <p>{t(language, 'ui.insightNotCleanable')}</p>
+      </section>
+
+      <section className="impact-box">
+        <span>{t(language, 'ui.insightReason')}</span>
+        <p>{localizeInsightReason(insight, language)}</p>
+        <span>{t(language, 'ui.insightRecommendation')}</span>
+        <p>{localizeInsightRecommendation(insight, language)}</p>
+        <span>{t(language, 'ui.estimateSource')}</span>
+        <p>{formatEstimateSource(insight.estimateSource, language)}</p>
+      </section>
+
+      <div className="inspector-actions">
+        <button className="secondary-button" disabled={!insight.canReveal} onClick={onReveal}>
+          <FolderOpen size={16} />
+          {t(language, 'ui.revealLocation')}
         </button>
       </div>
     </aside>
@@ -1107,6 +1388,26 @@ function localizeIssue(issue: ScanIssue, language: AppLanguage): string {
   return issue.messageKey ? t(language, issue.messageKey, issue.messageParams) : issue.message
 }
 
+function localizeIssueGroupTitle(group: ScanIssueGroup, language: AppLanguage): string {
+  return group.titleKey ? t(language, group.titleKey, group.messageParams) : group.title
+}
+
+function localizeIssueGroupMessage(group: ScanIssueGroup, language: AppLanguage): string {
+  return group.messageKey ? t(language, group.messageKey, group.messageParams) : group.message
+}
+
+function localizeInsightTitle(insight: StorageInsight, language: AppLanguage): string {
+  return insight.titleKey ? t(language, insight.titleKey, insight.titleParams) : insight.title
+}
+
+function localizeInsightReason(insight: StorageInsight, language: AppLanguage): string {
+  return insight.reasonKey ? t(language, insight.reasonKey, insight.reasonParams) : insight.reason
+}
+
+function localizeInsightRecommendation(insight: StorageInsight, language: AppLanguage): string {
+  return insight.recommendationKey ? t(language, insight.recommendationKey, insight.recommendationParams) : insight.recommendation
+}
+
 function localizeCleanupFailure(failure: CleanupFailure, language: AppLanguage): string {
   return failure.errorKey ? t(language, failure.errorKey, failure.errorParams) : failure.error
 }
@@ -1210,7 +1511,7 @@ function sortCandidates(
 
 function kindPriority(candidate: CleanupCandidate): number {
   if (candidate.safety === 'discouraged') return 9
-  if (candidate.kind === 'cache' || candidate.kind === 'log' || candidate.kind === 'diagnostic') return 0
+  if (candidate.kind === 'cache' || candidate.kind === 'log' || candidate.kind === 'diagnostic' || candidate.kind === 'developer-cache') return 0
   if (candidate.kind === 'download-archive') return 1
   return 2
 }
@@ -1264,6 +1565,7 @@ function createUnavailableApi(): MacCleanerApi {
     cleanupPreview: unavailable,
     moveToTrash: unavailable,
     revealPath: unavailable,
+    openFullDiskAccessSettings: unavailable,
     checkForLocalUpdate: unavailable,
     runLocalSourceUpdate: unavailable,
     configureLocalUpdate: unavailable,

@@ -2,7 +2,7 @@
 
 中文 | [English](README.en-US.md)
 
-Mac Cleaner 是一款免费、开源、本地运行的 macOS 存储空间清理助手，使用 Electron、React 和 TypeScript 构建。它只扫描低风险的用户级目录，用普通人能看懂的话解释每个候选项是什么，并且只会在你二次确认后把文件移到废纸篓。
+Mac Cleaner 是一款免费、开源、本地运行的 macOS 存储空间清理助手，使用 Electron、React 和 TypeScript 构建。它会建立启动磁盘用户态目录的空间占用地图，用普通人能看懂的话解释大项是什么；只有明确安全或需确认的清理候选，才会在你二次确认后移到废纸篓。
 
 ## 安装为中文界面
 
@@ -49,7 +49,22 @@ npm run install:local:zh -- --install-dir "$HOME/Tools"
 
 ## 当前扫描范围
 
-当前版本刻意保持保守，只扫描这些用户级位置：
+当前版本把扫描结果拆成两层：
+
+- `安心清理`：只展示明确安全或需确认的候选项，才有清理按钮。
+- `空间地图`：展示启动磁盘用户态目录中的大体积目录和文件，只解释和定位，不提供自动清理。
+
+空间地图默认扫描这些可访问区域：
+
+- 当前用户目录 `~`
+- `/Users/Shared`
+- `/Applications`
+- `/Library`
+- `/private/var/folders`
+
+系统保护核心路径、外接卷、符号链接和无法确认安全性的内容会被跳过或只做说明。Full Disk Access 是可选授权：开启后能看清更多目录，但不会让工具自动删除这些目录。
+
+安心清理候选来自这些固定安全目录和规则：
 
 - `~/Library/Caches`
 - `~/Library/Logs`
@@ -57,6 +72,8 @@ npm run install:local:zh -- --install-dir "$HOME/Tools"
 - `~/Library/Logs/CrashReporter`
 - `~/Library/HTTPStorages`（需要确认，因为可能包含 cookie、会话或网站数据）
 - `~/Library/Saved Application State`
+- `~/Library/Developer/Xcode/DerivedData`
+- `~/Library/Caches/Homebrew`、`~/Library/Caches/pip`、`~/.npm`、`~/.cache/yarn` 等开发缓存
 - `~/Downloads` 里的旧安装包和压缩包
 - `~/.Trash` 只统计体积；App 不会清空废纸篓
 
@@ -66,7 +83,7 @@ npm run install:local:zh -- --install-dir "$HOME/Tools"
 - `需确认`：用户可能还会用到的下载内容或生成数据
 - `不建议清理`：受阻、无权限、不支持或风险不清楚的数据
 
-同类小文件会默认聚合，避免扫描结果里出现一大堆体积很小、很难逐个判断的文件。大体积安全缓存和旧安装包会保持单独展示，方便优先处理。
+同类小文件会默认聚合，避免扫描结果里出现一大堆体积很小、很难逐个判断的文件。大体积安全缓存、开发缓存和旧安装包会保持优先展示；照片、邮件、消息、项目目录、Docker 镜像、Xcode Archives、应用本体和普通大文件只会出现在空间地图中。
 
 ## 语言
 
@@ -147,7 +164,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.5.1` 修复桌面 App 本地文件系统桥接加载失败时误显示示例扫描结果的问题；`v0.5.0` 将默认安装位置改为桌面，首次安装允许设置目录，并继续保留中英文定向安装命令。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.6.0` 增加启动磁盘用户态空间地图、权限问题分组、Full Disk Access 引导和开发缓存安全候选；清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

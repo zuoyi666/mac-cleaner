@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanProgress } from '../shared/types'
+import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanMode, ScanProgress, ScanRequest } from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
 import { isAppLanguage, readLanguagePreference, writeInstallTarget, writeLanguagePreference } from './services/languagePreference'
@@ -92,8 +92,9 @@ app.on('window-all-closed', () => {
 })
 
 function registerIpcHandlers(): void {
-  ipcMain.handle('mac-cleaner:scan', async (event, languageInput: unknown) => {
-    const language = validateLanguage(languageInput)
+  ipcMain.handle('mac-cleaner:scan', async (event, scanInput: unknown) => {
+    const scanRequest = validateScanRequest(scanInput)
+    const language = scanRequest.language ?? 'zh-CN'
     if (activeScanAbortController) {
       throw new Error(t(language, 'main.scanAlreadyRunning'))
     }
@@ -105,7 +106,12 @@ function registerIpcHandlers(): void {
     }
 
     try {
-      currentScanRun = await scanStorage({ language, signal: abortController.signal, onProgress: emitProgress })
+      currentScanRun = await scanStorage({
+        language,
+        mode: scanRequest.mode ?? 'comprehensive',
+        signal: abortController.signal,
+        onProgress: emitProgress
+      })
       return currentScanRun.summary
     } catch (error) {
       if (isAbortError(error)) {
@@ -147,6 +153,29 @@ function registerIpcHandlers(): void {
       }
     }
     return revealPath(targetPath)
+  })
+
+  ipcMain.handle('mac-cleaner:open-full-disk-access-settings', async () => {
+    const url = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
+    try {
+      await shell.openExternal(url)
+      return {
+        ok: true,
+        targetKind: 'unknown',
+        method: 'none',
+        message: t('zh-CN', 'main.fullDiskAccessOpened'),
+        messageKey: 'main.fullDiskAccessOpened'
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        targetKind: 'unknown',
+        method: 'none',
+        message: t('zh-CN', 'main.fullDiskAccessFailed', { error: formatError(error) }),
+        messageKey: 'main.fullDiskAccessFailed',
+        messageParams: { error: formatError(error) }
+      }
+    }
   })
 
   ipcMain.handle('mac-cleaner:check-local-update', async (event, languageInput: unknown) => {
@@ -218,6 +247,25 @@ function validatePathString(value: unknown, fieldName: string): string {
     throw new Error(t('zh-CN', 'main.invalidParam', { fieldName }))
   }
   return value
+}
+
+function validateScanRequest(value: unknown): ScanRequest {
+  if (value === undefined || isAppLanguage(value)) {
+    return { language: value ?? 'zh-CN', mode: 'comprehensive' }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid scan request.')
+  }
+  const input = value as Record<string, unknown>
+  return {
+    language: input.language === undefined ? 'zh-CN' : validateLanguage(input.language),
+    mode: input.mode === undefined ? 'comprehensive' : validateScanMode(input.mode)
+  }
+}
+
+function validateScanMode(value: unknown): ScanMode {
+  if (value === 'standard' || value === 'comprehensive') return value
+  throw new Error('Invalid scan mode.')
 }
 
 function validateLanguage(value: unknown): AppLanguage {

@@ -40,6 +40,13 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     cleanupPreview: vi.fn(),
     moveToTrash: vi.fn(),
     revealPath: vi.fn().mockResolvedValue(revealOk),
+    openFullDiskAccessSettings: vi.fn().mockResolvedValue({
+      ok: true,
+      targetKind: 'unknown',
+      method: 'none',
+      message: '已打开 macOS 隐私设置。',
+      messageKey: 'main.fullDiskAccessOpened'
+    }),
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
@@ -102,6 +109,13 @@ describe('MacCleanerApp', () => {
         needsRescan: true
       }),
       revealPath: vi.fn().mockResolvedValue(revealOk),
+      openFullDiskAccessSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        targetKind: 'unknown',
+        method: 'none',
+        message: '已打开 macOS 隐私设置。',
+        messageKey: 'main.fullDiskAccessOpened'
+      }),
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
@@ -176,6 +190,13 @@ describe('MacCleanerApp', () => {
         needsRescan: true
       }),
       revealPath: vi.fn().mockResolvedValue(revealOk),
+      openFullDiskAccessSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        targetKind: 'unknown',
+        method: 'none',
+        message: '已打开 macOS 隐私设置。',
+        messageKey: 'main.fullDiskAccessOpened'
+      }),
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
@@ -293,6 +314,32 @@ describe('MacCleanerApp', () => {
     })
   })
 
+  it('shows the storage map separately without cleanup actions for insights', async () => {
+    const user = userEvent.setup()
+
+    render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
+
+    await user.click(screen.getByRole('button', { name: /空间地图/ }))
+
+    expect(screen.getAllByText('Applications')).not.toHaveLength(0)
+    expect(screen.getAllByText('不建议自动清理')).not.toHaveLength(0)
+    expect(screen.getByText(/空间地图只负责解释和定位/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /移到废纸篓: Applications/ })).not.toBeInTheDocument()
+  })
+
+  it('opens the Full Disk Access guide from grouped permission issues', async () => {
+    const user = userEvent.setup()
+    const api = makeApi()
+
+    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
+
+    await user.click(screen.getByText(/1 个目录因权限/))
+    await user.click(screen.getByRole('button', { name: /开启 Full Disk Access/ }))
+
+    expect(api.openFullDiskAccessSettings).toHaveBeenCalled()
+    expect(await screen.findByText(/已打开 macOS 隐私设置/)).toBeInTheDocument()
+  })
+
   it('switches the current UI to English without rescanning', async () => {
     const user = userEvent.setup()
     const firstCandidate = demoSummary.candidates[0]
@@ -377,6 +424,13 @@ describe('MacCleanerApp', () => {
       cleanupPreview: vi.fn(),
       moveToTrash: vi.fn(),
       revealPath: vi.fn().mockResolvedValue(revealOk),
+      openFullDiskAccessSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        targetKind: 'unknown',
+        method: 'none',
+        message: '已打开 macOS 隐私设置。',
+        messageKey: 'main.fullDiskAccessOpened'
+      }),
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,

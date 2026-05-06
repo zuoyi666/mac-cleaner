@@ -8,6 +8,7 @@ import type {
   LocalUpdateStatus,
   MacCleanerApi,
   ScanProgress,
+  ScanRequest,
   ScanSummary
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
@@ -25,7 +26,7 @@ export const demoSummary: ScanSummary = {
     usedBytes: 703_441_219_584,
     availableBytes: 291_221_364_736
   },
-  totalCleanableBytes: 18_940_305_408,
+  totalCleanableBytes: 25_970_597_888,
   trash: {
     sizeBytes: 2_110_144_000,
     itemCount: 84,
@@ -40,6 +41,33 @@ export const demoSummary: ScanSummary = {
       severity: 'warning'
     }
   ],
+  issueGroups: [
+    {
+      id: 'issue-group-permission',
+      kind: 'permission',
+      title: t('zh-CN', 'issueGroup.permission.title', { count: 1 }),
+      titleKey: 'issueGroup.permission.title',
+      message: t('zh-CN', 'issueGroup.permission.message', { count: 1 }),
+      messageKey: 'issueGroup.permission.message',
+      messageParams: { count: 1 },
+      severity: 'warning',
+      count: 1,
+      pathSamples: ['~/Library/Caches/com.apple.containermanagerd']
+    }
+  ],
+  coverage: {
+    mode: 'comprehensive',
+    roots: ['~', '/Applications', '/Library', '/private/var/folders'],
+    scannedRootCount: 4,
+    skippedRootCount: 0,
+    scannedEntries: 46_180,
+    measuredBytes: 126_448_220_160,
+    inaccessibleCount: 1,
+    timeoutCount: 0,
+    symlinkCount: 0,
+    protectedCount: 0,
+    insightCount: 4
+  },
   categories: [
     {
       id: 'caches',
@@ -100,9 +128,40 @@ export const demoSummary: ScanSummary = {
       sizeBytes: 2_152_554_496,
       candidateCount: 4,
       safetyBreakdown: { safe: 0, confirm: 4, discouraged: 0 }
+    },
+    {
+      id: 'developer-caches',
+      name: t('zh-CN', 'category.developer-caches.name'),
+      nameKey: 'category.developer-caches.name',
+      description: t('zh-CN', 'category.developer-caches.description'),
+      descriptionKey: 'category.developer-caches.description',
+      sizeBytes: 7_030_292_480,
+      candidateCount: 2,
+      safetyBreakdown: { safe: 2, confirm: 0, discouraged: 0 }
     }
   ],
   candidates: [
+    makeDemoCandidate({
+      id: 'demo-dev-derived-data',
+      title: 'Xcode DerivedData',
+      categoryId: 'developer-caches',
+      categoryName: '开发工具缓存',
+      categoryNameKey: 'category.developer-caches.name',
+      kind: 'developer-cache',
+      safety: 'safe',
+      canClean: true,
+      sizeBytes: 7_030_292_480,
+      itemCount: 18_241,
+      pathPreview: '~/Library/Developer/Xcode/DerivedData',
+      pathToken: 'demo-derived-data-token',
+      reason: '开发工具缓存通常可重新生成。',
+      reasonKey: 'candidate.developer-cache.reason',
+      impact: '下次构建可能变慢，但不会删除源码项目。',
+      impactKey: 'candidate.developer-cache.impact',
+      actionLabel: '移到废纸篓',
+      actionLabelKey: 'candidate.developer-cache.action',
+      lastModified: now
+    }),
     makeDemoCandidate({
       id: 'demo-cache-arc',
       title: 'company.thebrowser.Browser',
@@ -208,6 +267,92 @@ export const demoSummary: ScanSummary = {
       actionLabelKey: 'candidate.saved-state.action',
       lastModified: now
     })
+  ],
+  insights: [
+    {
+      id: 'demo-insight-applications',
+      scanId: demoScanId,
+      title: 'Applications',
+      kind: 'application',
+      risk: 'not-recommended',
+      sizeBytes: 48_122_920_960,
+      itemCount: 312,
+      pathCount: 312,
+      pathPreview: '/Applications',
+      pathSamples: ['/Applications'],
+      pathToken: 'demo-insight-applications-token',
+      canReveal: true,
+      readable: true,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'insight.application.reason'),
+      reasonKey: 'insight.application.reason',
+      recommendation: t('zh-CN', 'insight.application.recommendation'),
+      recommendationKey: 'insight.application.recommendation',
+      lastModified: now
+    },
+    {
+      id: 'demo-insight-pictures',
+      scanId: demoScanId,
+      title: 'Pictures',
+      kind: 'privacy-data',
+      risk: 'not-recommended',
+      sizeBytes: 36_808_908_800,
+      itemCount: 8_420,
+      pathCount: 8_420,
+      pathPreview: '~/Pictures',
+      pathSamples: ['~/Pictures'],
+      pathToken: 'demo-insight-pictures-token',
+      canReveal: true,
+      readable: true,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'insight.privacy.reason'),
+      reasonKey: 'insight.privacy.reason',
+      recommendation: t('zh-CN', 'insight.privacy.recommendation'),
+      recommendationKey: 'insight.privacy.recommendation',
+      lastModified: now
+    },
+    {
+      id: 'demo-insight-documents',
+      scanId: demoScanId,
+      title: 'Documents',
+      kind: 'user-content',
+      risk: 'review',
+      sizeBytes: 22_110_011_392,
+      itemCount: 1_204,
+      pathCount: 1_204,
+      pathPreview: '~/Documents',
+      pathSamples: ['~/Documents'],
+      pathToken: 'demo-insight-documents-token',
+      canReveal: true,
+      readable: true,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'insight.userContent.reason'),
+      reasonKey: 'insight.userContent.reason',
+      recommendation: t('zh-CN', 'insight.userContent.recommendation'),
+      recommendationKey: 'insight.userContent.recommendation',
+      lastModified: now
+    },
+    {
+      id: 'demo-insight-library',
+      scanId: demoScanId,
+      title: 'Library',
+      kind: 'system-support',
+      risk: 'not-recommended',
+      sizeBytes: 19_604_127_744,
+      itemCount: 28_592,
+      pathCount: 28_592,
+      pathPreview: '~/Library',
+      pathSamples: ['~/Library'],
+      pathToken: 'demo-insight-library-token',
+      canReveal: true,
+      readable: true,
+      estimateSource: 'partial-filesystem-walk',
+      reason: t('zh-CN', 'insight.systemSupport.reason'),
+      reasonKey: 'insight.systemSupport.reason',
+      recommendation: t('zh-CN', 'insight.systemSupport.recommendation'),
+      recommendationKey: 'insight.systemSupport.recommendation',
+      lastModified: now
+    }
   ]
 }
 
@@ -221,7 +366,8 @@ export function createDemoApi(): MacCleanerApi {
   }
 
   return {
-    async scan(language: AppLanguage = 'zh-CN') {
+    async scan(request: AppLanguage | ScanRequest = 'zh-CN') {
+      const language = typeof request === 'string' ? request : request.language ?? 'zh-CN'
       listeners.forEach((listener) =>
         listener({
           scanId: demoScanId,
@@ -292,12 +438,21 @@ export function createDemoApi(): MacCleanerApi {
         messageKey: 'main.revealOpenedDirectory'
       } as const
     },
+    async openFullDiskAccessSettings() {
+      return {
+        ok: true,
+        targetKind: 'unknown',
+        method: 'none',
+        message: t('zh-CN', 'main.fullDiskAccessOpened'),
+        messageKey: 'main.fullDiskAccessOpened'
+      } as const
+    },
     async checkForLocalUpdate(language: AppLanguage = 'zh-CN'): Promise<LocalUpdateStatus> {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.5.1',
-        latestVersion: '0.5.1',
+        currentVersion: '0.6.0',
+        latestVersion: '0.6.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -321,8 +476,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.5.1',
-        currentVersion: '0.5.1',
+        previousVersion: '0.6.0',
+        currentVersion: '0.6.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),
