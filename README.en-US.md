@@ -102,10 +102,10 @@ The interface includes 4 local themes:
 
 - `Hacker`: dark terminal-style interface for high-contrast operation.
 - `Aurora`: light tech interface for macOS light appearance.
-- `Graphite`: low-saturation dark professional interface.
+- `Neon`: cyber-neon interface that is clearly distinct from Hacker.
 - `Solar`: warm light minimal interface.
 
-First launch defaults to `System`: macOS dark mode uses Hacker, and light mode uses Aurora. You can switch themes from the Local Settings card. Theme preference stays on this Mac and does not affect scanning, cleanup confirmations, or local source updates.
+First launch defaults to `Aurora`. You can switch themes from the Local Settings card. Theme preference stays on this Mac and does not affect scanning, cleanup confirmations, or local source updates.
 
 ## Development
 
@@ -175,7 +175,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.7.0` adds 4 local interface themes and defaults to the macOS light/dark appearance. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.7.1` refines themes: Aurora is now the default, the System option is removed, and Neon replaces Graphite. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

@@ -1,8 +1,8 @@
 export type SafetyLevel = 'safe' | 'confirm' | 'discouraged'
 
 export type AppLanguage = 'zh-CN' | 'en-US'
-export type AppTheme = 'hacker-dark' | 'aurora-light' | 'graphite-pro' | 'solar-minimal'
-export type ThemePreference = 'system' | AppTheme
+export type AppTheme = 'hacker-dark' | 'aurora-light' | 'neon-night' | 'solar-minimal'
+export type ThemePreference = AppTheme
 
 export type I18nParams = Record<string, string | number>
 

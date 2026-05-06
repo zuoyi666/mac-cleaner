@@ -59,16 +59,16 @@ describe('language preference settings', () => {
 
     await writeLanguagePreference('zh-CN', settingsPath, new Date('2026-05-06T01:00:00Z'))
     await writeInstallTarget(desktopTarget, settingsPath, new Date('2026-05-06T02:00:00Z'), homeDir)
-    await writeThemePreference('system', settingsPath, new Date('2026-05-06T03:00:00Z'))
-    expect(await readThemePreference(settingsPath)).toBe('system')
+    await writeThemePreference('aurora-light', settingsPath, new Date('2026-05-06T03:00:00Z'))
+    expect(await readThemePreference(settingsPath)).toBe('aurora-light')
 
-    await writeThemePreference('graphite-pro', settingsPath, new Date('2026-05-06T04:00:00Z'))
+    await writeThemePreference('neon-night', settingsPath, new Date('2026-05-06T04:00:00Z'))
     expect(await readLanguagePreference(settingsPath)).toBe('zh-CN')
     expect(await readInstallTarget(settingsPath, homeDir)).toBe(desktopTarget)
-    expect(await readThemePreference(settingsPath)).toBe('graphite-pro')
+    expect(await readThemePreference(settingsPath)).toBe('neon-night')
 
     const raw = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, string>
-    expect(raw.themePreference).toBe('graphite-pro')
+    expect(raw.themePreference).toBe('neon-night')
     expect(raw.updatedAt).toBe('2026-05-06T04:00:00.000Z')
   })
 

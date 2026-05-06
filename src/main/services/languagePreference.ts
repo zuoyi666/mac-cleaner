@@ -89,7 +89,7 @@ export function isAppLanguage(value: unknown): value is AppLanguage {
 }
 
 export function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'system' || value === 'hacker-dark' || value === 'aurora-light' || value === 'graphite-pro' || value === 'solar-minimal'
+  return value === 'hacker-dark' || value === 'aurora-light' || value === 'neon-night' || value === 'solar-minimal'
 }
 
 export function isAllowedInstallTarget(value: unknown, homeDir = os.homedir()): value is string {

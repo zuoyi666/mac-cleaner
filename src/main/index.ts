@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -48,12 +48,7 @@ const localUpdateService = createLocalUpdateService()
 async function createWindow(): Promise<void> {
   const initialLanguage = await readLanguagePreference()
   const initialThemePreference = await readThemePreference()
-  const initialAppTheme =
-    initialThemePreference && initialThemePreference !== 'system'
-      ? initialThemePreference
-      : nativeTheme.shouldUseDarkColors
-        ? 'hacker-dark'
-        : 'aurora-light'
+  const initialAppTheme = initialThemePreference ?? 'aurora-light'
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
