@@ -217,7 +217,7 @@ export function createDemoApi(): MacCleanerApi {
   let languagePreference: AppLanguage | null = null
   const demoUpdateConfig: LocalUpdateConfig = {
     repoPath: '/Users/yizuo/Mac-Clearner',
-    installTarget: '/Users/yizuo/Applications/Mac Cleaner.app'
+    installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app'
   }
 
   return {
@@ -296,8 +296,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.4.0',
-        latestVersion: '0.4.0',
+        currentVersion: '0.5.0',
+        latestVersion: '0.5.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -321,8 +321,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.4.0',
-        currentVersion: '0.4.0',
+        previousVersion: '0.5.0',
+        currentVersion: '0.5.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),

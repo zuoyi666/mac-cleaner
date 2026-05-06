@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanProgress } from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
-import { isAppLanguage, readLanguagePreference, writeLanguagePreference } from './services/languagePreference'
+import { isAppLanguage, readLanguagePreference, writeInstallTarget, writeLanguagePreference } from './services/languagePreference'
 import { createLocalUpdateService } from './services/localUpdate'
 import type { ScanRun } from './services/scanner'
 import { scanStorage } from './services/scanner'
@@ -156,8 +156,10 @@ function registerIpcHandlers(): void {
     return result
   })
 
-  ipcMain.handle('mac-cleaner:configure-local-update', (_event, configInput: unknown) => {
-    return localUpdateService.configure(validateLocalUpdateConfig(configInput))
+  ipcMain.handle('mac-cleaner:configure-local-update', async (_event, configInput: unknown) => {
+    const config = localUpdateService.configure(validateLocalUpdateConfig(configInput))
+    await writeInstallTarget(config.installTarget)
+    return config
   })
 
   ipcMain.handle('mac-cleaner:get-language-preference', async () => {

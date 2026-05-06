@@ -15,16 +15,22 @@ npm ci
 npm run install:local:zh
 ```
 
-App 会安装到：
+默认会安装到桌面：
 
 ```bash
-~/Applications/Mac Cleaner.app
+~/Desktop/Mac Cleaner.app
 ```
 
 这条命令会把这台 Mac 上的默认界面语言设置为中文。语言偏好只保存在本机：
 
 ```bash
 ~/Library/Application Support/Mac Cleaner/settings.json
+```
+
+首次安装时，终端会允许你输入其它安装目录；直接回车会使用桌面。也可以显式指定目录：
+
+```bash
+npm run install:local:zh -- --install-dir "$HOME/Tools"
 ```
 
 安装后你仍然可以在 App 左侧的“本地设置”里切换到英文。这个安装包是从源码在本机构建的 unsigned App，第一次打开时 macOS 可能会显示未签名提示。
@@ -121,7 +127,7 @@ npm run package:dir
 维护者本机源码同步更新：
 
 - App 会在启动时和“本地设置”中检查当前 GitHub 分支。
-- 有更新时，“同步并安装”会执行 `git pull --ff-only`、`npm ci`、`npm run package:dir`，安装到 `~/Applications/Mac Cleaner.app` 并重启 App。
+- 有更新时，“同步并安装”会执行 `git pull --ff-only`、`npm ci`、`npm run package:dir`，安装到 `~/Desktop/Mac Cleaner.app` 并重启 App。
 - 如果 tracked 文件有未提交改动，或分支与 upstream 分叉，更新会被阻断。
 
 创建 unsigned macOS 发布产物：
@@ -141,7 +147,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.4.0` 增加了中英文独立 GitHub 说明页，以及按语言设置默认界面的本地安装命令。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.5.0` 将默认安装位置改为桌面，首次安装允许设置目录，并继续保留中英文定向安装命令。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

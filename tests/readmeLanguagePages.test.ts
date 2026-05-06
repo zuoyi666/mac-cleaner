@@ -16,7 +16,11 @@ describe('GitHub language README pages', () => {
 
     expect(zhReadme).toContain('npm run install:local:zh')
     expect(zhReadme).toContain('默认界面语言设置为中文')
+    expect(zhReadme).toContain('~/Desktop/Mac Cleaner.app')
+    expect(zhReadme).toContain('--install-dir "$HOME/Tools"')
     expect(enReadme).toContain('npm run install:local:en')
     expect(enReadme).toContain('default interface language on this Mac to English')
+    expect(enReadme).toContain('~/Desktop/Mac Cleaner.app')
+    expect(enReadme).toContain('--install-dir "$HOME/Tools"')
   })
 })

@@ -19,7 +19,7 @@ describe('local update service', () => {
     expect(status.state).toBe('available')
     expect(status.updateAvailable).toBe(true)
     expect(status.currentVersion).toBe('0.2.0')
-    expect(status.latestVersion).toBe('0.4.0')
+    expect(status.latestVersion).toBe('0.5.0')
     expect(status.message).toContain('New commits')
   })
 
@@ -71,10 +71,11 @@ describe('local update service', () => {
     expect(spawnDetached).toHaveBeenCalledWith('/usr/bin/env', expect.arrayContaining(['node', expect.stringContaining('install-local-app.mjs')]))
   })
 
-  it('only allows local installs inside the user Applications folder', () => {
+  it('only allows local installs inside the user home folder', () => {
     expect(() => normalizeConfig({ repoPath: 'relative', installTarget: makeInstallTarget() })).toThrow()
     expect(() => normalizeConfig({ repoPath: '/tmp/repo', installTarget: '/Applications/Mac Cleaner.app' })).toThrow()
-    expect(normalizeConfig({ repoPath: '/tmp/repo', installTarget: makeInstallTarget() }).installTarget).toContain('Applications')
+    expect(normalizeConfig({ repoPath: '/tmp/repo', installTarget: makeInstallTarget() }).installTarget).toContain('Desktop')
+    expect(normalizeConfig({ repoPath: '/tmp/repo', installTarget: path.join(os.homedir(), 'Tools', 'Mac Cleaner.app') }).installTarget).toContain('Tools')
   })
 })
 
@@ -93,7 +94,7 @@ function makeConfig(repoPath: string) {
 }
 
 function makeInstallTarget(): string {
-  return path.join(os.homedir(), 'Applications', 'Mac Cleaner.app')
+  return path.join(os.homedir(), 'Desktop', 'Mac Cleaner.app')
 }
 
 function makeRunner({
@@ -122,7 +123,7 @@ function makeRunner({
     if (fullCommand === 'git status --porcelain --untracked-files=no') return ok(dirty ? ' M package.json' : '')
     if (fullCommand === 'git fetch --tags --prune') return ok('')
     if (fullCommand === 'git show origin/codex/reliability-upgrades:package.json') {
-      return ok(JSON.stringify({ name: 'mac-cleaner', version: '0.4.0' }))
+      return ok(JSON.stringify({ name: 'mac-cleaner', version: '0.5.0' }))
     }
     if (fullCommand === 'git merge-base --is-ancestor local-commit remote-commit') return diverged ? fail('diverged') : ok('')
     if (fullCommand === 'git pull --ff-only') return ok('')

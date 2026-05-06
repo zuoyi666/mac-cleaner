@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
+import * as fsSync from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -54,7 +55,7 @@ interface RepoInfo {
 export function createLocalUpdateService(options: LocalUpdateServiceOptions = {}): LocalUpdateService {
   let config: LocalUpdateConfig = normalizeConfig({
     repoPath: options.repoPath ?? process.env.MAC_CLEANER_REPO_PATH ?? path.join(os.homedir(), 'Mac-Clearner'),
-    installTarget: options.installTarget ?? path.join(os.homedir(), 'Applications', PRODUCT_APP_NAME)
+    installTarget: options.installTarget ?? process.env.MAC_CLEANER_INSTALL_TARGET ?? readSavedInstallTarget() ?? getDefaultInstallTarget()
   })
   const runCommand = options.commandRunner ?? defaultCommandRunner
   const copyAppBundle = options.copyAppBundle ?? copyAppBundleWithDitto
@@ -206,8 +207,8 @@ export function normalizeConfig(config: LocalUpdateConfig): LocalUpdateConfig {
   if (!path.isAbsolute(config.repoPath)) {
     throw new Error('Repository path must be absolute.')
   }
-  if (!isInsideApplications(config.installTarget)) {
-    throw new Error('Install target must be inside ~/Applications.')
+  if (!isInsideHome(config.installTarget)) {
+    throw new Error('Install target must be inside the user home folder.')
   }
   return {
     repoPath: path.normalize(config.repoPath),
@@ -404,10 +405,24 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-function isInsideApplications(targetPath: string): boolean {
-  if (!path.isAbsolute(targetPath)) return false
-  const applicationsRoot = path.join(os.homedir(), 'Applications')
-  const relative = path.relative(applicationsRoot, targetPath)
+function getDefaultInstallTarget(): string {
+  return path.join(os.homedir(), 'Desktop', PRODUCT_APP_NAME)
+}
+
+function readSavedInstallTarget(): string | undefined {
+  try {
+    const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Mac Cleaner', 'settings.json')
+    const parsed = JSON.parse(fsSync.readFileSync(settingsPath, 'utf8')) as { installTarget?: unknown }
+    return isInsideHome(parsed.installTarget) ? parsed.installTarget : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isInsideHome(targetPath: unknown): targetPath is string {
+  if (typeof targetPath !== 'string' || !path.isAbsolute(targetPath)) return false
+  const homeRoot = os.homedir()
+  const relative = path.relative(homeRoot, targetPath)
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && path.basename(targetPath) === PRODUCT_APP_NAME
 }
 
