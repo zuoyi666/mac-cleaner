@@ -12,6 +12,8 @@ const api: MacCleanerApi = {
   checkForLocalUpdate: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:check-local-update', validateLanguage(language)),
   runLocalSourceUpdate: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:run-local-update', validateLanguage(language)),
   configureLocalUpdate: (config: Partial<LocalUpdateConfig>) => ipcRenderer.invoke('mac-cleaner:configure-local-update', validateLocalUpdateConfig(config)),
+  getLanguagePreference: () => ipcRenderer.invoke('mac-cleaner:get-language-preference'),
+  setLanguagePreference: (language: AppLanguage) => ipcRenderer.invoke('mac-cleaner:set-language-preference', validateRequiredLanguage(language)),
   onScanProgress: (listener: (progress: ScanProgress) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, progress: ScanProgress): void => listener(progress)
     ipcRenderer.on('mac-cleaner:scan-progress', wrapped)
@@ -43,6 +45,13 @@ function validateCandidateIds(candidateIds: string[]): string[] {
 function validateLanguage(language: AppLanguage | undefined): AppLanguage {
   if (language === undefined || language === 'zh-CN' || language === 'en-US') {
     return language ?? 'zh-CN'
+  }
+  throw new Error('Invalid language argument')
+}
+
+function validateRequiredLanguage(language: AppLanguage): AppLanguage {
+  if (language === 'zh-CN' || language === 'en-US') {
+    return language
   }
   throw new Error('Invalid language argument')
 }

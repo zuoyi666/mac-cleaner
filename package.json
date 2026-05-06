@@ -1,6 +1,6 @@
 {
   "name": "mac-cleaner",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local visual macOS storage cleanup assistant.",
   "author": "zuoyi666",
   "license": "MIT",
@@ -31,6 +31,8 @@
     "smoke:electron": "MAC_CLEANER_SMOKE_TEST=1 electron out/main/index.js",
     "package:dir": "npm run build && electron-builder --mac --dir --publish=never -c.mac.identity=null -c.mac.notarize=false",
     "install:local": "node scripts/install-local-build.mjs",
+    "install:local:zh": "node scripts/install-local-build.mjs --language zh-CN",
+    "install:local:en": "node scripts/install-local-build.mjs --language en-US",
     "dist:mac": "npm run build && electron-builder --mac --publish=never -c.mac.identity=null -c.mac.notarize=false",
     "dist:mac:signed": "npm run release:mac:preflight && npm run build && electron-builder --mac --publish=never",
     "release:dry-run": "npm run icon:build && electron-builder --mac --dir --publish=never -c.mac.identity=null -c.mac.notarize=false",

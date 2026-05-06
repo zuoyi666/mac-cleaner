@@ -214,6 +214,7 @@ export const demoSummary: ScanSummary = {
 export function createDemoApi(): MacCleanerApi {
   let listeners: Array<(progress: ScanProgress) => void> = []
   let updateListeners: Array<(progress: LocalUpdateProgress) => void> = []
+  let languagePreference: AppLanguage | null = null
   const demoUpdateConfig: LocalUpdateConfig = {
     repoPath: '/Users/yizuo/Mac-Clearner',
     installTarget: '/Users/yizuo/Applications/Mac Cleaner.app'
@@ -295,8 +296,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.3.0',
-        latestVersion: '0.3.0',
+        currentVersion: '0.4.0',
+        latestVersion: '0.4.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -320,8 +321,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.3.0',
-        currentVersion: '0.3.0',
+        previousVersion: '0.4.0',
+        currentVersion: '0.4.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),
@@ -330,6 +331,13 @@ export function createDemoApi(): MacCleanerApi {
     },
     async configureLocalUpdate(config: Partial<LocalUpdateConfig>) {
       return { ...demoUpdateConfig, ...config }
+    },
+    async getLanguagePreference() {
+      return languagePreference
+    },
+    async setLanguagePreference(language: AppLanguage) {
+      languagePreference = language
+      return languagePreference
     },
     onScanProgress(listener: (progress: ScanProgress) => void) {
       listeners = [...listeners, listener]

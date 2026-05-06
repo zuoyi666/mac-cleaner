@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanProgress } from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
+import { isAppLanguage, readLanguagePreference, writeLanguagePreference } from './services/languagePreference'
 import { createLocalUpdateService } from './services/localUpdate'
 import type { ScanRun } from './services/scanner'
 import { scanStorage } from './services/scanner'
@@ -36,7 +37,8 @@ const cleanupManager = createCleanupManager(
 )
 const localUpdateService = createLocalUpdateService()
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
+  const initialLanguage = await readLanguagePreference()
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -54,9 +56,13 @@ function createWindow(): void {
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+    const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL)
+    if (initialLanguage) devServerUrl.searchParams.set('initialLanguage', initialLanguage)
+    mainWindow.loadURL(devServerUrl.toString())
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: initialLanguage ? { initialLanguage } : undefined
+    })
   }
 }
 
@@ -67,10 +73,10 @@ app.whenReady().then(() => {
     return
   }
 
-  createWindow()
+  void createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
 })
 
@@ -153,6 +159,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mac-cleaner:configure-local-update', (_event, configInput: unknown) => {
     return localUpdateService.configure(validateLocalUpdateConfig(configInput))
   })
+
+  ipcMain.handle('mac-cleaner:get-language-preference', async () => {
+    return readLanguagePreference()
+  })
+
+  ipcMain.handle('mac-cleaner:set-language-preference', async (_event, languageInput: unknown) => {
+    return writeLanguagePreference(validateRequiredLanguage(languageInput))
+  })
 }
 
 function emitLocalUpdateProgress(sender: WebContents, progress: LocalUpdateProgress): void {
@@ -198,9 +212,14 @@ function validatePathString(value: unknown, fieldName: string): string {
 }
 
 function validateLanguage(value: unknown): AppLanguage {
-  if (value === undefined || value === 'zh-CN' || value === 'en-US') {
+  if (value === undefined || isAppLanguage(value)) {
     return value ?? 'zh-CN'
   }
+  throw new Error('Invalid language parameter.')
+}
+
+function validateRequiredLanguage(value: unknown): AppLanguage {
+  if (isAppLanguage(value)) return value
   throw new Error('Invalid language parameter.')
 }
 

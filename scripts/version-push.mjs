@@ -35,7 +35,7 @@ if (dryRun) {
 ensureCleanWorktree(root)
 updatePackageVersions(root, nextVersion)
 runValidation(root)
-run('git', ['add', 'package.json', 'package-lock.json', 'README.md'], { cwd: root })
+run('git', ['add', 'package.json', 'package-lock.json', 'README.md', 'README.zh-CN.md', 'README.en-US.md'], { cwd: root })
 run('git', ['commit', '-m', `chore(release): v${nextVersion}`], { cwd: root })
 run('git', ['push'], { cwd: root })
 
