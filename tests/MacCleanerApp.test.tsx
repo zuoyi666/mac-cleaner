@@ -343,6 +343,23 @@ describe('MacCleanerApp', () => {
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
   })
 
+  it('does not silently show demo cleanup candidates when the native bridge is missing', async () => {
+    render(<MacCleanerApp />)
+
+    expect(await screen.findByText(/本地文件系统桥接未加载/)).toBeInTheDocument()
+    expect(screen.queryByText('DesignTool-4.2.1.dmg')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /扫描存储空间/ })).toBeDisabled()
+  })
+
+  it('only shows demo candidates when preview mode is explicit', async () => {
+    window.history.replaceState(null, '', '/?demo=1')
+
+    render(<MacCleanerApp />)
+
+    expect(await screen.findByText('DesignTool-4.2.1.dmg')).toBeInTheDocument()
+    expect(screen.getByText(/浏览器预览模式/)).toBeInTheDocument()
+  })
+
   it('shows local update availability and requires confirmation before syncing', async () => {
     const user = userEvent.setup()
     const availableStatus: LocalUpdateStatus = {

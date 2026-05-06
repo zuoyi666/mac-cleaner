@@ -147,7 +147,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.5.0` changes the default install location to Desktop, allows first-install directory selection, and keeps language-directed install commands. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.5.1` fixes a reliability issue where the desktop app could show sample scan results when the local filesystem bridge failed to load. `v0.5.0` changes the default install location to Desktop, allows first-install directory selection, and keeps language-directed install commands. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

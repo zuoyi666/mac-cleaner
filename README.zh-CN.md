@@ -147,7 +147,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.5.0` 将默认安装位置改为桌面，首次安装允许设置目录，并继续保留中英文定向安装命令。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.5.1` 修复桌面 App 本地文件系统桥接加载失败时误显示示例扫描结果的问题；`v0.5.0` 将默认安装位置改为桌面，首次安装允许设置目录，并继续保留中英文定向安装命令。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 
