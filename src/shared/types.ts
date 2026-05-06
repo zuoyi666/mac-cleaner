@@ -1,6 +1,8 @@
 export type SafetyLevel = 'safe' | 'confirm' | 'discouraged'
 
 export type AppLanguage = 'zh-CN' | 'en-US'
+export type AppTheme = 'hacker-dark' | 'aurora-light' | 'graphite-pro' | 'solar-minimal'
+export type ThemePreference = 'system' | AppTheme
 
 export type I18nParams = Record<string, string | number>
 
@@ -310,6 +312,8 @@ export interface MacCleanerApi {
   configureLocalUpdate(config: Partial<LocalUpdateConfig>): Promise<LocalUpdateConfig>
   getLanguagePreference(): Promise<AppLanguage | null>
   setLanguagePreference(language: AppLanguage): Promise<AppLanguage>
+  getThemePreference(): Promise<ThemePreference | null>
+  setThemePreference(themePreference: ThemePreference): Promise<ThemePreference>
   onScanProgress(listener: (progress: ScanProgress) => void): () => void
   onLocalUpdateProgress(listener: (progress: LocalUpdateProgress) => void): () => void
 }

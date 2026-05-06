@@ -38,7 +38,9 @@ import type {
   ScanIssue,
   ScanSummary,
   StorageInsight,
-  StorageInsightRisk
+  StorageInsightRisk,
+  AppTheme,
+  ThemePreference
 } from '../../shared/types'
 import { resolveLanguage, t } from '../../shared/i18n'
 import { createDemoApi, demoSummary } from './demoApi'
@@ -73,6 +75,15 @@ const safetyMeta: Record<
 }
 
 const LANGUAGE_STORAGE_KEY = 'mac-cleaner-language'
+const THEME_STORAGE_KEY = 'mac-cleaner-theme-preference'
+
+const themeOptions: Array<{ value: ThemePreference; labelKey: string }> = [
+  { value: 'system', labelKey: 'theme.system' },
+  { value: 'hacker-dark', labelKey: 'theme.hackerDark' },
+  { value: 'aurora-light', labelKey: 'theme.auroraLight' },
+  { value: 'graphite-pro', labelKey: 'theme.graphitePro' },
+  { value: 'solar-minimal', labelKey: 'theme.solarMinimal' }
+]
 
 const categoryIcons: Record<string, typeof Archive> = {
   caches: Sparkles,
@@ -106,6 +117,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [resultView, setResultView] = useState<'cleanup' | 'map'>('cleanup')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readStoredThemePreference())
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => readSystemPrefersDark())
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'>('recommended')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -126,6 +139,42 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
   useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
+
+  const activeTheme = useMemo(() => resolveThemePreference(themePreference, systemPrefersDark), [themePreference, systemPrefersDark])
+
+  useEffect(() => {
+    if (hasInitialThemePreference()) return undefined
+    let cancelled = false
+    async function loadThemePreference(): Promise<void> {
+      try {
+        const savedThemePreference = await macCleaner.getThemePreference()
+        if (!cancelled && savedThemePreference) {
+          setThemePreference(savedThemePreference)
+          localStorage.setItem(THEME_STORAGE_KEY, savedThemePreference)
+        }
+      } catch {
+        // Keep the local/browser fallback when the native preference is unavailable.
+      }
+    }
+    void loadThemePreference()
+    return () => {
+      cancelled = true
+    }
+  }, [macCleaner])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = activeTheme
+    document.documentElement.style.colorScheme = isLightTheme(activeTheme) ? 'light' : 'dark'
+  }, [activeTheme])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!mediaQuery) return undefined
+    const updateSystemTheme = (): void => setSystemPrefersDark(mediaQuery.matches)
+    updateSystemTheme()
+    mediaQuery.addEventListener?.('change', updateSystemTheme)
+    return () => mediaQuery.removeEventListener?.('change', updateSystemTheme)
+  }, [])
 
   useEffect(() => {
     if (nativeBridgeMissing) {
@@ -329,6 +378,16 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     }
   }
 
+  async function changeThemePreference(nextThemePreference: ThemePreference): Promise<void> {
+    setThemePreference(nextThemePreference)
+    localStorage.setItem(THEME_STORAGE_KEY, nextThemePreference)
+    try {
+      await macCleaner.setThemePreference(nextThemePreference)
+    } catch (preferenceError) {
+      setError(formatError(preferenceError))
+    }
+  }
+
   async function reveal(candidate: CleanupCandidate): Promise<void> {
     try {
       const revealResult = await macCleaner.revealPath(candidate.pathToken)
@@ -485,6 +544,21 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 {t(language, 'language.en')}
               </button>
             </div>
+            <label className="theme-picker">
+              <span>{t(language, 'theme.label')}</span>
+              <select
+                className="theme-select"
+                value={themePreference}
+                aria-label={t(language, 'theme.label')}
+                onChange={(event) => void changeThemePreference(event.target.value as ThemePreference)}
+              >
+                {themeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(language, option.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="local-update-box">
               <div className="local-update-heading">
                 <strong>{t(language, 'ui.localUpdateTitle')}</strong>
@@ -1351,6 +1425,35 @@ function readStoredLanguage(): AppLanguage {
   return resolveLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? navigator.language)
 }
 
+function readStoredThemePreference(): ThemePreference {
+  const initialThemePreference = new URLSearchParams(window.location.search).get('initialThemePreference')
+  if (isThemePreference(initialThemePreference)) return initialThemePreference
+  const storedThemePreference = localStorage.getItem(THEME_STORAGE_KEY)
+  if (isThemePreference(storedThemePreference)) return storedThemePreference
+  return 'system'
+}
+
+function hasInitialThemePreference(): boolean {
+  return isThemePreference(new URLSearchParams(window.location.search).get('initialThemePreference'))
+}
+
+function readSystemPrefersDark(): boolean {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+}
+
+function resolveThemePreference(themePreference: ThemePreference, systemPrefersDark: boolean): AppTheme {
+  if (themePreference === 'system') return systemPrefersDark ? 'hacker-dark' : 'aurora-light'
+  return themePreference
+}
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'hacker-dark' || value === 'aurora-light' || value === 'graphite-pro' || value === 'solar-minimal'
+}
+
+function isLightTheme(theme: AppTheme): boolean {
+  return theme === 'aurora-light' || theme === 'solar-minimal'
+}
+
 function localizeCategoryName(category: CategorySummary, language: AppLanguage): string {
   return category.nameKey ? t(language, category.nameKey) : category.name
 }
@@ -1571,6 +1674,8 @@ function createUnavailableApi(): MacCleanerApi {
     configureLocalUpdate: unavailable,
     getLanguagePreference: async () => null,
     setLanguagePreference: async (language) => language,
+    getThemePreference: async () => null,
+    setThemePreference: async (themePreference) => themePreference,
     onScanProgress: () => () => undefined,
     onLocalUpdateProgress: () => () => undefined
   }

@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { AppLanguage } from '../../shared/types'
+import type { AppLanguage, ThemePreference } from '../../shared/types'
 
 interface LanguageSettings {
   language?: unknown
   installTarget?: unknown
+  themePreference?: unknown
   updatedAt?: unknown
 }
 
@@ -37,6 +38,15 @@ export async function readInstallTarget(settingsPath = getLanguageSettingsPath()
   }
 }
 
+export async function readThemePreference(settingsPath = getLanguageSettingsPath()): Promise<ThemePreference | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as LanguageSettings
+    return isThemePreference(parsed.themePreference) ? parsed.themePreference : null
+  } catch {
+    return null
+  }
+}
+
 export async function writeLanguagePreference(
   language: AppLanguage,
   settingsPath = getLanguageSettingsPath(),
@@ -62,8 +72,24 @@ export async function writeInstallTarget(
   return installTarget
 }
 
+export async function writeThemePreference(
+  themePreference: ThemePreference,
+  settingsPath = getLanguageSettingsPath(),
+  now = new Date()
+): Promise<ThemePreference> {
+  if (!isThemePreference(themePreference)) {
+    throw new Error('Invalid theme preference.')
+  }
+  await writeSettings({ themePreference }, settingsPath, now)
+  return themePreference
+}
+
 export function isAppLanguage(value: unknown): value is AppLanguage {
   return value === 'zh-CN' || value === 'en-US'
+}
+
+export function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'hacker-dark' || value === 'aurora-light' || value === 'graphite-pro' || value === 'solar-minimal'
 }
 
 export function isAllowedInstallTarget(value: unknown, homeDir = os.homedir()): value is string {

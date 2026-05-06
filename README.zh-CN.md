@@ -96,6 +96,17 @@ npm run install:local:en
 
 App 内的语言切换按钮仍然保留在“本地设置”里。语言偏好只保存在本机，不会上传。
 
+## 皮肤主题
+
+界面支持 4 款本地皮肤主题：
+
+- `黑客终端`：深色黑客风，适合夜间和高对比操作。
+- `极光浅色`：浅色科技风，适合跟随 macOS 浅色模式。
+- `石墨专业`：低饱和深色生产力风格。
+- `日光极简`：暖色浅色极简风格。
+
+首次启动默认 `跟随系统`：macOS 深色模式使用黑客终端，浅色模式使用极光浅色。你可以在左侧“本地设置”里切换皮肤；主题偏好只保存在本机，不影响扫描、清理确认或本地同步更新。
+
 ## 开发
 
 要求：
@@ -164,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.6.0` 增加启动磁盘用户态空间地图、权限问题分组、Full Disk Access 引导和开发缓存安全候选；清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.7.0` 增加 4 款本地皮肤主题，并默认跟随 macOS 浅色/深色外观；清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

@@ -96,6 +96,17 @@ npm run install:local:zh
 
 The in-app language switch remains available in Local Settings. Language preference never leaves the device.
 
+## Themes
+
+The interface includes 4 local themes:
+
+- `Hacker`: dark terminal-style interface for high-contrast operation.
+- `Aurora`: light tech interface for macOS light appearance.
+- `Graphite`: low-saturation dark professional interface.
+- `Solar`: warm light minimal interface.
+
+First launch defaults to `System`: macOS dark mode uses Hacker, and light mode uses Aurora. You can switch themes from the Local Settings card. Theme preference stays on this Mac and does not affect scanning, cleanup confirmations, or local source updates.
+
 ## Development
 
 Requirements:
@@ -164,7 +175,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.6.0` adds a startup-disk user-space storage map, grouped permission issues, Full Disk Access guidance, and safe developer-cache candidates. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.7.0` adds 4 local interface themes and defaults to the macOS light/dark appearance. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

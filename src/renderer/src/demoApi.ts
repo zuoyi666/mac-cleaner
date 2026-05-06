@@ -9,7 +9,8 @@ import type {
   MacCleanerApi,
   ScanProgress,
   ScanRequest,
-  ScanSummary
+  ScanSummary,
+  ThemePreference
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
 
@@ -360,6 +361,7 @@ export function createDemoApi(): MacCleanerApi {
   let listeners: Array<(progress: ScanProgress) => void> = []
   let updateListeners: Array<(progress: LocalUpdateProgress) => void> = []
   let languagePreference: AppLanguage | null = null
+  let themePreference: ThemePreference | null = null
   const demoUpdateConfig: LocalUpdateConfig = {
     repoPath: '/Users/yizuo/Mac-Clearner',
     installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app'
@@ -451,8 +453,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.6.0',
-        latestVersion: '0.6.0',
+        currentVersion: '0.7.0',
+        latestVersion: '0.7.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -476,8 +478,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.6.0',
-        currentVersion: '0.6.0',
+        previousVersion: '0.7.0',
+        currentVersion: '0.7.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),
@@ -493,6 +495,13 @@ export function createDemoApi(): MacCleanerApi {
     async setLanguagePreference(language: AppLanguage) {
       languagePreference = language
       return languagePreference
+    },
+    async getThemePreference() {
+      return themePreference
+    },
+    async setThemePreference(nextThemePreference: ThemePreference) {
+      themePreference = nextThemePreference
+      return themePreference
     },
     onScanProgress(listener: (progress: ScanProgress) => void) {
       listeners = [...listeners, listener]
