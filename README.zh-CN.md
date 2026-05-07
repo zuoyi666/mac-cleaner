@@ -175,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.7.3` 修复本地同步更新的进度反馈：点击“检查更新”后，如果已经是最新版本，界面会明确显示“检查完成：当前已经是最新版本”，不会停留在“正在获取远端提交”。清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.8.0` 升级安全科技 UI：默认极光浅色更有玻璃质感，概览区增加安全指标卡，清理列表强化类别图标、聚合摘要和风险层级，详情与确认弹窗改为结论优先。清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

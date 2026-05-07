@@ -19,7 +19,8 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
-  X
+  X,
+  type LucideIcon
 } from 'lucide-react'
 import type {
   AppLanguage,
@@ -28,6 +29,7 @@ import type {
   CleanupFailure,
   CleanupPreview,
   CleanupResult,
+  FullDiskAccessStatus,
   LocalUpdateProgress,
   LocalUpdateStatus,
   MacCleanerApi,
@@ -52,7 +54,7 @@ interface MacCleanerAppProps {
 
 const safetyMeta: Record<
   SafetyLevel,
-  { labelKey: string; className: string; icon: typeof ShieldCheck; descriptionKey: string }
+  { labelKey: string; className: string; icon: LucideIcon; descriptionKey: string }
 > = {
   safe: {
     labelKey: 'safety.safe.label',
@@ -77,14 +79,14 @@ const safetyMeta: Record<
 const LANGUAGE_STORAGE_KEY = 'mac-cleaner-language'
 const THEME_STORAGE_KEY = 'mac-cleaner-theme-preference'
 
-const themeOptions: Array<{ value: ThemePreference; labelKey: string }> = [
-  { value: 'aurora-light', labelKey: 'theme.auroraLight' },
-  { value: 'hacker-dark', labelKey: 'theme.hackerDark' },
-  { value: 'neon-night', labelKey: 'theme.neonNight' },
-  { value: 'solar-minimal', labelKey: 'theme.solarMinimal' }
+const themeOptions: Array<{ value: ThemePreference; labelKey: string; swatchClass: string }> = [
+  { value: 'aurora-light', labelKey: 'theme.auroraLight', swatchClass: 'aurora' },
+  { value: 'hacker-dark', labelKey: 'theme.hackerDark', swatchClass: 'hacker' },
+  { value: 'neon-night', labelKey: 'theme.neonNight', swatchClass: 'neon' },
+  { value: 'solar-minimal', labelKey: 'theme.solarMinimal', swatchClass: 'solar' }
 ]
 
-const categoryIcons: Record<string, typeof Archive> = {
+const categoryIcons: Record<string, LucideIcon> = {
   caches: Sparkles,
   logs: FileArchive,
   diagnostics: AlertTriangle,
@@ -267,6 +269,9 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const usedPercent = summary?.disk.totalBytes
     ? Math.round((summary.disk.usedBytes / summary.disk.totalBytes) * 100)
     : 0
+  const cleanableStats = useMemo(() => calculateCleanableStats(candidates), [candidates])
+  const safeCleanablePercent = cleanableStats.cleanableBytes ? Math.round((cleanableStats.safeBytes / cleanableStats.cleanableBytes) * 100) : 0
+  const confirmCleanablePercent = cleanableStats.cleanableBytes ? 100 - safeCleanablePercent : 0
 
   async function runScan(): Promise<void> {
     setIsScanning(true)
@@ -534,29 +539,39 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           <div className="settings-card">
             <strong>{t(language, 'ui.settingsTitle')}</strong>
             <span>{t(language, 'ui.settingsSubtitle')}</span>
-            <div className="language-toggle" aria-label={t(language, 'ui.languageLabel')}>
-              <button className={language === 'zh-CN' ? 'active' : ''} onClick={() => void changeLanguage('zh-CN')}>
-                {t(language, 'language.zh')}
-              </button>
-              <button className={language === 'en-US' ? 'active' : ''} onClick={() => void changeLanguage('en-US')}>
-                {t(language, 'language.en')}
-              </button>
+            <div className="settings-group">
+              <span>{t(language, 'ui.settingsLanguage')}</span>
+              <div className="language-toggle" aria-label={t(language, 'ui.languageLabel')}>
+                <button className={language === 'zh-CN' ? 'active' : ''} onClick={() => void changeLanguage('zh-CN')}>
+                  {t(language, 'language.zh')}
+                </button>
+                <button className={language === 'en-US' ? 'active' : ''} onClick={() => void changeLanguage('en-US')}>
+                  {t(language, 'language.en')}
+                </button>
+              </div>
             </div>
-            <label className="theme-picker">
+            <div className="settings-group">
               <span>{t(language, 'theme.label')}</span>
-              <select
-                className="theme-select"
-                value={themePreference}
-                aria-label={t(language, 'theme.label')}
-                onChange={(event) => void changeThemePreference(event.target.value as ThemePreference)}
-              >
+              <div className="theme-swatch-grid" role="radiogroup" aria-label={t(language, 'theme.label')}>
                 {themeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    className={themePreference === option.value ? 'theme-swatch-button active' : 'theme-swatch-button'}
+                    aria-checked={themePreference === option.value}
+                    onClick={() => void changeThemePreference(option.value)}
+                  >
+                    <span className={`theme-dots ${option.swatchClass}`} aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
                     {t(language, option.labelKey)}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
             <div className="local-update-box">
               <div className="local-update-heading">
                 <strong>{t(language, 'ui.localUpdateTitle')}</strong>
@@ -651,18 +666,45 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
         <section className="overview-grid" aria-label={t(language, 'ui.storageOverview')}>
           <div className="overview-panel disk-panel">
-            <div
-              className="donut"
-              style={{ '--used-percent': `${usedPercent}%` } as CSSProperties}
-              aria-label={t(language, 'ui.diskUsedAria', { percent: usedPercent })}
-            >
-              <span>{usedPercent}%</span>
-              <small>{t(language, 'ui.used')}</small>
+            <div className="dashboard-heading">
+              <div>
+                <span>{t(language, 'ui.controlConsoleTitle')}</span>
+                <strong>{summary?.disk.mountPath ?? 'Macintosh HD'}</strong>
+              </div>
+              <span className="security-chip">
+                <ShieldCheck size={14} />
+                {summary ? t(language, 'ui.safetyReady') : t(language, 'ui.safetyWaiting')}
+              </span>
             </div>
-            <div className="disk-copy">
-              <span>{t(language, 'ui.releasable')}</span>
-              <strong>{formatBytes(summary?.totalCleanableBytes ?? 0)}</strong>
-              <p>{t(language, 'ui.diskCopy', { available: formatBytes(summary?.disk.availableBytes ?? 0) })}</p>
+            <div className="disk-dashboard-body">
+              <div
+                className="donut"
+                style={{ '--used-percent': `${usedPercent}%` } as CSSProperties}
+                aria-label={t(language, 'ui.diskUsedAria', { percent: usedPercent })}
+              >
+                <span>{usedPercent}%</span>
+                <small>{t(language, 'ui.used')}</small>
+              </div>
+              <div className="disk-copy">
+                <span>{t(language, 'ui.releasable')}</span>
+                <strong>{formatBytes(summary?.totalCleanableBytes ?? 0)}</strong>
+                <p>{t(language, 'ui.diskCopy', { available: formatBytes(summary?.disk.availableBytes ?? 0) })}</p>
+                <div className="safety-meter" aria-label={t(language, 'ui.safeVsConfirmAria')}>
+                  <div className="meter-line">
+                    <i className="safe" style={{ width: `${safeCleanablePercent}%` }} />
+                    <i className="confirm" style={{ width: `${confirmCleanablePercent}%` }} />
+                  </div>
+                  <span>
+                    {t(language, 'ui.safeCandidateBytes', { bytes: formatBytes(cleanableStats.safeBytes) })} ·{' '}
+                    {t(language, 'ui.confirmCandidateBytes', { bytes: formatBytes(cleanableStats.confirmBytes) })}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="metric-grid">
+              <MetricCard icon={HardDrive} label={t(language, 'ui.metricDisk')} value={summary?.disk.mountPath ?? 'Macintosh HD'} tone="accent" />
+              <MetricCard icon={ShieldCheck} label={t(language, 'ui.metricSafety')} value={summary ? t(language, 'ui.safetyReady') : t(language, 'ui.safetyWaiting')} tone="safe" />
+              <MetricCard icon={Clock3} label={t(language, 'ui.metricLastScan')} value={summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')} tone="muted" />
             </div>
           </div>
 
@@ -682,12 +724,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               </div>
             </div>
             {summary?.coverage && (
-              <div className="coverage-line">
-                {t(language, 'ui.coverageLine', {
-                  scanned: summary.coverage.scannedRootCount.toLocaleString(language),
-                  skipped: summary.coverage.skippedRootCount.toLocaleString(language),
-                  blocked: summary.coverage.inaccessibleCount.toLocaleString(language)
-                })}
+              <div className="coverage-console" aria-label={t(language, 'ui.scanCoverageTitle')}>
+                <MetricCard icon={Gauge} label={t(language, 'ui.metricScannedRoots')} value={summary.coverage.scannedRootCount.toLocaleString(language)} tone="accent" />
+                <MetricCard icon={AlertTriangle} label={t(language, 'ui.metricSkippedRoots')} value={summary.coverage.skippedRootCount.toLocaleString(language)} tone="confirm" />
+                <MetricCard icon={ShieldCheck} label={t(language, 'ui.metricFullDiskAccess')} value={formatFullDiskAccessStatus(summary.coverage.fullDiskAccessStatus, language)} tone={summary.coverage.fullDiskAccessStatus === 'likely-missing' ? 'confirm' : 'safe'} />
               </div>
             )}
             {summary?.issueGroups?.length ? (
@@ -978,6 +1018,28 @@ function CategoryNavItem({
   )
 }
 
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  tone
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+  tone: 'accent' | 'safe' | 'confirm' | 'muted'
+}): JSX.Element {
+  return (
+    <div className={`metric-card ${tone}`}>
+      <span className="metric-icon">
+        <Icon size={15} />
+      </span>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
 function CandidateRow({
   candidate,
   language,
@@ -1003,6 +1065,7 @@ function CandidateRow({
       onSelect()
     }
   }
+  const CategoryIcon = categoryIcons[candidate.categoryId] ?? Archive
 
   return (
     <div
@@ -1013,7 +1076,7 @@ function CandidateRow({
       onKeyDown={handleKeyboardSelect}
     >
       <span className="candidate-title">
-        <span className="candidate-title-line">
+        <span className="candidate-title-line candidate-title-line-with-icon">
           <input
             type="checkbox"
             checked={checked}
@@ -1025,17 +1088,22 @@ function CandidateRow({
             }}
             onClick={(event) => event.stopPropagation()}
           />
-          <strong>
-            {localizeCandidateTitle(candidate, language)}
-            {candidate.displayKind === 'group' && <em className="group-chip">{t(language, 'ui.groupBadge')}</em>}
-          </strong>
+          <span className={`candidate-kind-mark ${candidate.safety}`}>
+            <CategoryIcon size={15} />
+          </span>
+          <span className="candidate-title-copy">
+            <strong>
+              {localizeCandidateTitle(candidate, language)}
+              {candidate.displayKind === 'group' && <em className="group-chip">{t(language, 'ui.groupBadge')}</em>}
+            </strong>
+            <small>{candidate.pathPreview}</small>
+            {candidate.displayKind === 'group' && candidate.groupCount && (
+              <small className="group-line">
+                {localizeGroupSummary(candidate, language)}
+              </small>
+            )}
+          </span>
         </span>
-        <small>{candidate.pathPreview}</small>
-        {candidate.displayKind === 'group' && candidate.groupCount && (
-          <small className="group-line">
-            {localizeGroupSummary(candidate, language)}
-          </small>
-        )}
       </span>
       <SafetyBadge safety={candidate.safety} language={language} />
       <span className="size-cell">{formatBytes(candidate.sizeBytes)}</span>
@@ -1105,10 +1173,15 @@ function InsightRow({
       onKeyDown={handleKeyboardSelect}
     >
       <span className="candidate-title">
-        <span className="candidate-title-line">
-          <strong>{localizeInsightTitle(insight, language)}</strong>
+        <span className="candidate-title-line insight-title-line">
+          <span className={`candidate-kind-mark ${insightRiskClass[insight.risk]}`}>
+            <HardDrive size={15} />
+          </span>
+          <span className="candidate-title-copy">
+            <strong>{localizeInsightTitle(insight, language)}</strong>
+            <small>{insight.pathPreview}</small>
+          </span>
         </span>
-        <small>{insight.pathPreview}</small>
       </span>
       <span className={`safety-badge ${insightRiskClass[insight.risk]}`}>
         <Info size={14} />
@@ -1178,6 +1251,15 @@ function CandidateInspector({
       <h2>{localizeCandidateTitle(candidate, language)}</h2>
       <p className="path-line">{candidate.pathPreview}</p>
 
+      <section className={`recommendation-card ${meta.className}`}>
+        <div>
+          <RiskIcon size={18} />
+          <span>{t(language, 'ui.recommendedAction')}</span>
+        </div>
+        <strong>{candidate.canClean ? localizeCandidateAction(candidate, language) : t(language, 'ui.cannotClean')}</strong>
+        <p>{localizeCandidateReason(candidate, language)}</p>
+      </section>
+
       <div className="detail-stack">
         <div className="detail-item">
           <span>{t(language, 'ui.estimatedSize')}</span>
@@ -1225,10 +1307,12 @@ function CandidateInspector({
       )}
 
       <section className="impact-box">
-        <span>{t(language, 'ui.whyCleanable')}</span>
+        <span>{t(language, 'ui.whatThisIs')}</span>
         <p>{localizeCandidateReason(candidate, language)}</p>
-        <span>{t(language, 'ui.possibleImpact')}</span>
+        <span>{t(language, 'ui.afterCleanup')}</span>
         <p>{localizeCandidateImpact(candidate, language)}</p>
+        <span>{t(language, 'ui.whenToKeep')}</span>
+        <p>{candidate.safety === 'safe' ? t(language, 'ui.whenToKeepSafe') : t(language, meta.descriptionKey)}</p>
         <span>{t(language, 'ui.estimateSource')}</span>
         <p>
           {formatEstimateSource(candidate.estimateSource, language)} · {t(language, 'ui.snapshot')} {candidate.pathSnapshotHash.slice(0, 8)}
@@ -1285,6 +1369,15 @@ function InsightInspector({
       </div>
       <h2>{localizeInsightTitle(insight, language)}</h2>
       <p className="path-line">{insight.pathPreview}</p>
+
+      <section className={`recommendation-card ${insightRiskClass[insight.risk]}`}>
+        <div>
+          <ShieldCheck size={18} />
+          <span>{t(language, 'ui.recommendedAction')}</span>
+        </div>
+        <strong>{t(language, 'ui.revealLocation')}</strong>
+        <p>{localizeInsightRecommendation(insight, language)}</p>
+      </section>
 
       <div className="detail-stack">
         <div className="detail-item">
@@ -1354,6 +1447,23 @@ function ConfirmationModal({
         <p>
           {renderConfirmText(preview, language)}
         </p>
+        <div className="modal-safety-promise">
+          <ShieldCheck size={17} />
+          <div>
+            <strong>{t(language, 'ui.modalSafetyPromiseTitle')}</strong>
+            <span>{t(language, 'ui.modalSafetyPromiseText')}</span>
+          </div>
+        </div>
+        <div className="confirmation-summary">
+          <div>
+            <span>{t(language, 'ui.confirmEstimatedSize')}</span>
+            <strong>{formatBytes(preview.totalBytes)}</strong>
+          </div>
+          <div>
+            <span>{t(language, 'ui.confirmPathCount')}</span>
+            <strong>{preview.pathCount.toLocaleString(language)}</strong>
+          </div>
+        </div>
         <div className="preview-list">
           {preview.pathSamples.map((sample) => (
             <span key={sample}>{sample}</span>
@@ -1608,6 +1718,30 @@ function localizePreviewImpact(preview: CleanupPreview, language: AppLanguage): 
 
 function localizePreviewWarning(preview: CleanupPreview, language: AppLanguage): string {
   return preview.warningKey ? t(language, preview.warningKey) : preview.warning
+}
+
+function calculateCleanableStats(candidates: CleanupCandidate[]): {
+  safeBytes: number
+  confirmBytes: number
+  discouragedBytes: number
+  cleanableBytes: number
+} {
+  return candidates.reduce(
+    (stats, candidate) => {
+      if (candidate.safety === 'safe' && candidate.canClean) stats.safeBytes += candidate.sizeBytes
+      if (candidate.safety === 'confirm' && candidate.canClean) stats.confirmBytes += candidate.sizeBytes
+      if (candidate.safety === 'discouraged') stats.discouragedBytes += candidate.sizeBytes
+      stats.cleanableBytes = stats.safeBytes + stats.confirmBytes
+      return stats
+    },
+    { safeBytes: 0, confirmBytes: 0, discouragedBytes: 0, cleanableBytes: 0 }
+  )
+}
+
+function formatFullDiskAccessStatus(status: FullDiskAccessStatus, language: AppLanguage): string {
+  if (status === 'likely-granted') return t(language, 'ui.fullDiskAccessGrantedShort')
+  if (status === 'likely-missing') return t(language, 'ui.fullDiskAccessMissingShort')
+  return t(language, 'ui.fullDiskAccessUnknownShort')
 }
 
 function renderConfirmText(preview: CleanupPreview, language: AppLanguage): JSX.Element {

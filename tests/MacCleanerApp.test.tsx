@@ -19,8 +19,8 @@ import type {
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.7.3',
-  latestVersion: '0.7.3',
+  currentVersion: '0.8.0',
+  latestVersion: '0.8.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -59,8 +59,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.7.3',
-      currentVersion: '0.7.3',
+      previousVersion: '0.8.0',
+      currentVersion: '0.8.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -132,8 +132,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.3',
-        currentVersion: '0.7.3',
+        previousVersion: '0.8.0',
+        currentVersion: '0.8.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -156,6 +156,9 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
     expect(await screen.findAllByText('安全可清理')).not.toHaveLength(0)
     expect(screen.getAllByText('需确认')).not.toHaveLength(0)
+    expect(screen.getByText('安全清理控制台')).toBeInTheDocument()
+    expect(screen.getByText('建议操作')).toBeInTheDocument()
+    expect(screen.getByText('处理后会怎样')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
@@ -164,6 +167,8 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
     expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
+    expect(screen.getByText('只移动到废纸篓')).toBeInTheDocument()
+    expect(screen.getAllByText('路径数量').length).toBeGreaterThan(0)
     expect(api.moveToTrash).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: /确认移到废纸篓/ }))
@@ -215,8 +220,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.3',
-        currentVersion: '0.7.3',
+        previousVersion: '0.8.0',
+        currentVersion: '0.8.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -431,14 +436,14 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    const themeSelect = screen.getByRole('combobox', { name: '皮肤主题' })
+    const themePicker = screen.getByRole('radiogroup', { name: '皮肤主题' })
 
-    expect(themeSelect).toHaveValue('aurora-light')
-    expect(screen.queryByRole('option', { name: '跟随系统' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '极光浅色' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '黑客终端' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '霓虹夜城' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '日光极简' })).toBeInTheDocument()
+    expect(themePicker).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('radio', { name: '跟随系统' })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '黑客终端' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '霓虹夜城' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '日光极简' })).toBeInTheDocument()
     expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
 
@@ -448,7 +453,7 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '皮肤主题' }), 'hacker-dark')
+    await user.click(screen.getByRole('radio', { name: '黑客终端' }))
 
     await waitFor(() => {
       expect(api.setThemePreference).toHaveBeenCalledWith('hacker-dark')
@@ -458,7 +463,7 @@ describe('MacCleanerApp', () => {
     expect(api.scan).not.toHaveBeenCalled()
     expect(screen.getAllByText('Xcode DerivedData')).not.toHaveLength(0)
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '皮肤主题' }), 'solar-minimal')
+    await user.click(screen.getByRole('radio', { name: '日光极简' }))
     expect(document.documentElement.dataset.theme).toBe('solar-minimal')
   })
 
@@ -469,7 +474,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('neon-night')
+    expect(screen.getByRole('radio', { name: '霓虹夜城' })).toHaveAttribute('aria-checked', 'true')
     expect(document.documentElement.dataset.theme).toBe('neon-night')
   })
 
@@ -479,7 +484,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('aurora-light')
+    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
     expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
 
@@ -487,7 +492,7 @@ describe('MacCleanerApp', () => {
     window.history.replaceState(null, '', '/?initialThemePreference=graphite-pro')
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '皮肤主题' })).toHaveValue('aurora-light')
+    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('does not silently show demo cleanup candidates when the native bridge is missing', async () => {
@@ -513,7 +518,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.7.4',
+      latestVersion: '0.8.1',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -534,13 +539,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.7.3',
-        currentVersion: '0.7.3',
+        previousVersion: '0.8.0',
+        currentVersion: '0.8.0',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.7.4，即将重启。',
+        message: '已同步到 0.8.1，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.7.4' }
+        messageParams: { currentVersion: '0.8.1' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,
