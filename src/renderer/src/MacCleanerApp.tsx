@@ -739,7 +739,15 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <Info size={15} />
                   <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
                 </summary>
-                <div className="issue-details-body">
+                <div
+                  className="issue-details-body"
+                  role="region"
+                  tabIndex={0}
+                  aria-label={t(language, 'ui.issueDetailsBodyAria')}
+                >
+                  {summary.issueGroups.length > 1 && (
+                    <div className="issue-scroll-hint">{t(language, 'ui.issueScrollHint')}</div>
+                  )}
                   {summary.issueGroups.map((group) => (
                     <div className="issue-group-row" key={group.id}>
                       <strong>{localizeIssueGroupTitle(group, language)}</strong>

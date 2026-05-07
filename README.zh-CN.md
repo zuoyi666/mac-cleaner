@@ -175,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.9.0` 升级“说人话”解释体验：扫描结果会用更通俗的方式说明“这是什么、能不能删、删了会怎样、什么时候先别删”，列表先给一句结论，详情再展开完整说明。清理按钮仍只出现在固定安全 catalog 中，不新增自动删除能力。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.9.1` 修复扫描状态问题详情的滚动体验：展开黄色跳过原因后，右侧详情区域可以独立上下滚动查看全部内容，不再让用户误以为只显示了第一组问题。`v0.9.x` 继续保留“说人话”解释体验，清理按钮仍只出现在固定安全 catalog 中，不新增自动删除能力。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 
