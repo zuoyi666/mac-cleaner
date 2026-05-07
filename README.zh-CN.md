@@ -175,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.8.1` 修复本地同步更新卡片的进度文案排版：检查完成后的蓝色进度提示会自动换行完整显示，不再被省略号截断。清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.8.2` 修复扫描状态详情展开后的布局：右侧跳过目录详情会在扫描状态卡片内部滚动，不再撑高整行，也不会挤压中间的安全清理控制台。清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

@@ -736,44 +736,46 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <Info size={15} />
                   <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
                 </summary>
-                {summary.issueGroups.map((group) => (
-                  <div className="issue-group-row" key={group.id}>
-                    <strong>{localizeIssueGroupTitle(group, language)}</strong>
-                    <p>{localizeIssueGroupMessage(group, language)}</p>
-                    {group.pathSamples.slice(0, 4).map((sample) => (
-                      <code key={sample}>{sample}</code>
-                    ))}
+                <div className="issue-details-body">
+                  {summary.issueGroups.map((group) => (
+                    <div className="issue-group-row" key={group.id}>
+                      <strong>{localizeIssueGroupTitle(group, language)}</strong>
+                      <p>{localizeIssueGroupMessage(group, language)}</p>
+                      {group.pathSamples.slice(0, 4).map((sample) => (
+                        <code key={sample}>{sample}</code>
+                      ))}
+                    </div>
+                  ))}
+                  <div className="permission-note">
+                    <ShieldCheck size={15} />
+                    <span>{t(language, 'ui.permissionIssueNote')}</span>
                   </div>
-                ))}
-                <div className="permission-note">
-                  <ShieldCheck size={15} />
-                  <span>{t(language, 'ui.permissionIssueNote')}</span>
+                  {summary.issueGroups.some((group) => group.kind === 'permission') && (
+                    <div className="permission-cta">
+                      {summary.coverage.fullDiskAccessStatus === 'likely-granted' ? (
+                        <>
+                          <p>{t(language, 'ui.fullDiskAccessGrantedHint')}</p>
+                          <span className="permission-status-pill granted">
+                            <CheckCircle2 size={14} />
+                            {t(language, 'ui.insightReadableYes')}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <p>
+                            {summary.coverage.fullDiskAccessStatus === 'unknown'
+                              ? t(language, 'ui.fullDiskAccessUnknownHint')
+                              : t(language, 'ui.fullDiskAccessHint')}
+                          </p>
+                          <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
+                            <ShieldCheck size={14} />
+                            {t(language, 'ui.fullDiskAccessCta')}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {summary.issueGroups.some((group) => group.kind === 'permission') && (
-                  <div className="permission-cta">
-                    {summary.coverage.fullDiskAccessStatus === 'likely-granted' ? (
-                      <>
-                        <p>{t(language, 'ui.fullDiskAccessGrantedHint')}</p>
-                        <span className="permission-status-pill granted">
-                          <CheckCircle2 size={14} />
-                          {t(language, 'ui.insightReadableYes')}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <p>
-                          {summary.coverage.fullDiskAccessStatus === 'unknown'
-                            ? t(language, 'ui.fullDiskAccessUnknownHint')
-                            : t(language, 'ui.fullDiskAccessHint')}
-                        </p>
-                        <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
-                          <ShieldCheck size={14} />
-                          {t(language, 'ui.fullDiskAccessCta')}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
               </details>
             ) : (
               <div className="issue-line muted">
