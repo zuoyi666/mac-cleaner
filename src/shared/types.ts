@@ -52,6 +52,27 @@ export interface CategorySummary {
   safetyBreakdown: SafetyBreakdown
 }
 
+export interface HumanExplanation {
+  summary: string
+  summaryKey?: string
+  summaryParams?: I18nParams
+  what: string
+  whatKey?: string
+  whatParams?: I18nParams
+  cleanability: string
+  cleanabilityKey?: string
+  cleanabilityParams?: I18nParams
+  afterAction: string
+  afterActionKey?: string
+  afterActionParams?: I18nParams
+  keepAdvice: string
+  keepAdviceKey?: string
+  keepAdviceParams?: I18nParams
+  nextStep: string
+  nextStepKey?: string
+  nextStepParams?: I18nParams
+}
+
 export interface CleanupCandidate {
   id: string
   scanId: string
@@ -81,6 +102,7 @@ export interface CleanupCandidate {
   reasonKey?: string
   impact: string
   impactKey?: string
+  explanation: HumanExplanation
   actionLabel: string
   actionLabelKey?: string
   lastModified?: string
@@ -149,6 +171,7 @@ export interface StorageInsight {
   recommendation: string
   recommendationKey?: string
   recommendationParams?: I18nParams
+  explanation: HumanExplanation
   lastModified?: string
 }
 
@@ -210,6 +233,7 @@ export interface CleanupPreview {
   pathSamples: string[]
   impact: string
   impactKey?: string
+  explanation?: HumanExplanation
   warning: string
   warningKey?: string
   expiresAt: string

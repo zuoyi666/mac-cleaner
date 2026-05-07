@@ -59,8 +59,35 @@ describe('scanStorage', () => {
     expect(grouped?.groupCount).toBe(2)
     expect(grouped?.sizeBytes).toBe(160)
     expect(grouped?.pathSamples).toHaveLength(2)
+    expect(grouped?.explanation.summary).toContain('2 个同类小项目')
+    expect(grouped?.explanation.summaryParams).toMatchObject({ count: 2 })
     expect(large?.displayKind).toBe('single')
     expect(large?.sizeBytes).toBe(101 * 1024 * 1024)
+  })
+
+  it('adds complete human explanations to cleanup candidates', async () => {
+    const homeDir = await makeHome()
+    await writeSizedFile(path.join(homeDir, 'Library', 'Caches', 'com.example.cache', 'cache.bin'), 128)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Logs', 'example.log'), 128)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Logs', 'DiagnosticReports', 'example.crash'), 128)
+    await writeSizedFile(path.join(homeDir, 'Library', 'HTTPStorages', 'com.example.webview', 'state.db'), 128)
+    await writeSizedFile(path.join(homeDir, 'Library', 'Saved Application State', 'com.example.savedState', 'state.bin'), 128)
+    await writeSizedFile(path.join(homeDir, 'Downloads', 'OldTool.pkg'), 128, daysAgo(45))
+    await writeSizedFile(path.join(homeDir, 'Library', 'Developer', 'Xcode', 'DerivedData', 'DemoApp', 'build.bin'), 128)
+
+    const run = await scanStorage({ homeDir, now: fixedNow })
+    const expectedKinds = new Set(['cache', 'log', 'diagnostic', 'http-storage', 'saved-state', 'download-archive', 'developer-cache'])
+
+    for (const kind of expectedKinds) {
+      const candidate = run.summary.candidates.find((item) => item.kind === kind)
+      expect(candidate?.explanation.summary).toBeTruthy()
+      expect(candidate?.explanation.what).toBeTruthy()
+      expect(candidate?.explanation.cleanability).toBeTruthy()
+      expect(candidate?.explanation.afterAction).toBeTruthy()
+      expect(candidate?.explanation.keepAdvice).toBeTruthy()
+      expect(candidate?.explanation.nextStep).toBeTruthy()
+      expect(candidate?.explanation.summaryKey).toContain('.explanation.summary')
+    }
   })
 
   it('does not double count diagnostic reports as logs', async () => {
@@ -103,6 +130,8 @@ describe('scanStorage', () => {
     expect(candidate?.categoryName).toBe('Web Cache Storage')
     expect(candidate?.reason).toContain('web-view data')
     expect(candidate?.impact).toContain('sign in again')
+    expect(candidate?.explanation.summary).toContain('Web storage')
+    expect(candidate?.explanation.keepAdvice).toContain('every day')
     expect(candidate?.actionLabel).toBe('Review and Move to Trash')
   })
 
@@ -134,6 +163,8 @@ describe('scanStorage', () => {
 
     expect(insight?.risk).toBe('review')
     expect(insight?.recommendationKey).toBe('insight.userContent.recommendation')
+    expect(insight?.explanation.summary).toContain('个人文件')
+    expect(insight?.explanation.cleanability).toContain('不要一键删')
     expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('Documents'))).toBe(false)
     expect(run.summary.coverage.mode).toBe('comprehensive')
     expect(run.summary.coverage.fullDiskAccessStatus).toBe('unknown')

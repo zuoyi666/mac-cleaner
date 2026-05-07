@@ -2105,6 +2105,32 @@ h1 {
   white-space: nowrap;
 }
 
+.modal-explanation {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.modal-explanation > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.modal-explanation strong {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.modal-explanation span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
 .modal-warning {
   display: flex;
   align-items: flex-start;

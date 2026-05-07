@@ -175,7 +175,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.8.2` fixes scan-status detail expansion: skipped-directory details now scroll inside the scan status card instead of stretching the whole overview row or squeezing the safe cleanup console. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.9.0` upgrades the plain-language explanation experience: scan results now explain what each item is, whether it can be removed, what happens afterward, and when to keep it. Lists show a short conclusion first, with full details in the inspector. Cleanup buttons still only appear for the fixed safe catalog; no new automatic deletion behavior is added. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 
