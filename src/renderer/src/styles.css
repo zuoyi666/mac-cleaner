@@ -1024,6 +1024,25 @@ h1 {
   margin: 0;
 }
 
+.permission-status-pill {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 16px;
+}
+
+.permission-status-pill.granted {
+  color: var(--safe);
+  background: var(--safe-bg);
+  border: 1px solid var(--safe-line);
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(650px, 1fr) 340px;

@@ -8,6 +8,7 @@ import type {
   CleanupCandidate,
   CleanupKind,
   EstimateSource,
+  FullDiskAccessStatus,
   IssueGroupKind,
   SafetyLevel,
   ScanCoverage,
@@ -328,6 +329,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   }
 
   const disk = await getDiskSummary(homeDir)
+  const fullDiskAccessStatus = await detectFullDiskAccessStatus(homeDir)
   const publicCandidates = [...candidates.values()].map(stripInternalCandidate)
   const totalCleanableBytes = publicCandidates
     .filter((candidate) => candidate.canClean)
@@ -354,7 +356,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       candidates: publicCandidates,
       insights: insightScan.insights,
       issueGroups: groupScanIssues(issues, homeDir, language),
-      coverage: makeCoverage(mode, insightScan, progress, issues),
+      coverage: makeCoverage(mode, insightScan, progress, issues, fullDiskAccessStatus),
       issues,
       trash
     },
@@ -1155,10 +1157,12 @@ function makeCoverage(
   mode: ScanMode,
   insightScan: InsightScanResult,
   progress: MeasureContext['progress'],
-  issues: ScanIssue[]
+  issues: ScanIssue[],
+  fullDiskAccessStatus: FullDiskAccessStatus
 ): ScanCoverage {
   return {
     mode,
+    fullDiskAccessStatus,
     roots: insightScan.roots,
     scannedRootCount: insightScan.scannedRootCount,
     skippedRootCount: insightScan.skippedRootCount,
@@ -1170,6 +1174,32 @@ function makeCoverage(
     protectedCount: issues.filter((issue) => classifyIssue(issue) === 'protected').length,
     insightCount: insightScan.insights.length
   }
+}
+
+async function detectFullDiskAccessStatus(homeDir: string): Promise<FullDiskAccessStatus> {
+  if (path.resolve(homeDir) !== path.resolve(os.homedir())) return 'unknown'
+  const probePaths = [
+    path.join(homeDir, 'Library', 'Mail'),
+    path.join(homeDir, 'Library', 'Messages'),
+    path.join(homeDir, 'Library', 'Safari'),
+    path.join(homeDir, 'Library', 'Calendars'),
+    path.join(homeDir, 'Library', 'Application Support', 'AddressBook')
+  ]
+
+  let denied = false
+  for (const probePath of probePaths) {
+    try {
+      const stats = await fs.lstat(probePath)
+      if (!stats.isDirectory()) continue
+      await fs.readdir(probePath)
+      return 'likely-granted'
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EACCES') denied = true
+    }
+  }
+
+  return denied ? 'likely-missing' : 'unknown'
 }
 
 function stripInternalCandidate(candidate: InternalCandidate): CleanupCandidate {

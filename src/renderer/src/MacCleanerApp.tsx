@@ -702,11 +702,27 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 </div>
                 {summary.issueGroups.some((group) => group.kind === 'permission') && (
                   <div className="permission-cta">
-                    <p>{t(language, 'ui.fullDiskAccessHint')}</p>
-                    <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
-                      <ShieldCheck size={14} />
-                      {t(language, 'ui.fullDiskAccessCta')}
-                    </button>
+                    {summary.coverage.fullDiskAccessStatus === 'likely-granted' ? (
+                      <>
+                        <p>{t(language, 'ui.fullDiskAccessGrantedHint')}</p>
+                        <span className="permission-status-pill granted">
+                          <CheckCircle2 size={14} />
+                          {t(language, 'ui.insightReadableYes')}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          {summary.coverage.fullDiskAccessStatus === 'unknown'
+                            ? t(language, 'ui.fullDiskAccessUnknownHint')
+                            : t(language, 'ui.fullDiskAccessHint')}
+                        </p>
+                        <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
+                          <ShieldCheck size={14} />
+                          {t(language, 'ui.fullDiskAccessCta')}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </details>

@@ -175,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.7.1` 优化主题体验：默认极光浅色、移除跟随系统选项，并用霓虹夜城替换石墨专业；清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.7.2` 优化 Full Disk Access 授权反馈：授权看起来已生效时不再继续显示“开启授权”按钮，剩余受限目录只做安全跳过说明；清理按钮仍只出现在固定安全 catalog 中。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 
