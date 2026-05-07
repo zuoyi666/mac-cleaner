@@ -175,7 +175,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.9.1` fixes the scan status details experience: after expanding the yellow skipped-issue summary, the right-side details area can scroll independently so users can review every skipped reason. The `v0.9.x` line still keeps the plain-language explanation experience, and cleanup buttons only appear for the fixed safe catalog; no new automatic deletion behavior is added. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.9.2` further fixes the scan status details experience: after expanding the yellow skipped-issue summary, details are constrained inside a fixed scroll viewport in the right-side card, so mouse wheel and trackpad scrolling can reveal every skipped reason and sample path. The `v0.9.x` line still keeps the plain-language explanation experience, and cleanup buttons only appear for the fixed safe catalog; no new automatic deletion behavior is added. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 
