@@ -175,7 +175,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.7.2` improves Full Disk Access feedback: once access appears enabled, the app stops showing the enable-access button and explains any remaining limited directories as safely skipped. Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.7.3` fixes local sync update progress feedback: after clicking "Check Updates", an already-current app now shows "Check complete: already up to date" instead of staying on "Fetching remote commits". Cleanup buttons still only appear for the fixed safe catalog. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

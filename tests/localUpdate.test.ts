@@ -32,6 +32,21 @@ describe('local update service', () => {
     expect(status.message).toContain('uncommitted changes')
   })
 
+  it('emits a completed progress message when the local branch is already current', async () => {
+    const repoPath = await makeRepo()
+    const progress: string[] = []
+    const status = await checkForUpdate(makeConfig(repoPath), makeRunner({ remoteCommit: 'local-commit' }), 'zh-CN', (entry) => {
+      progress.push(entry.message)
+    })
+
+    expect(status.state).toBe('current')
+    expect(progress).toEqual([
+      '正在检查 GitHub 更新',
+      '正在获取远端提交',
+      '检查完成：当前已经是最新版本。'
+    ])
+  })
+
   it('blocks updates when the branch has no upstream or diverged history', async () => {
     const repoPath = await makeRepo()
     const noUpstream = await checkForUpdate(makeConfig(repoPath), makeRunner({ upstream: '' }), 'en-US')
@@ -100,12 +115,14 @@ function makeInstallTarget(): string {
 function makeRunner({
   dirty = false,
   upstream = 'origin/codex/reliability-upgrades',
+  remoteCommit = 'remote-commit',
   diverged = false,
   commands,
   buildRepoPath
 }: {
   dirty?: boolean
   upstream?: string
+  remoteCommit?: string
   diverged?: boolean
   commands?: string[]
   buildRepoPath?: string
@@ -119,13 +136,13 @@ function makeRunner({
     }
     if (fullCommand === 'git remote get-url origin') return ok('https://github.com/zuoyi666/mac-cleaner.git')
     if (fullCommand === 'git rev-parse HEAD') return ok('local-commit')
-    if (fullCommand === `git rev-parse ${upstream}`) return ok('remote-commit')
+    if (fullCommand === `git rev-parse ${upstream}`) return ok(remoteCommit)
     if (fullCommand === 'git status --porcelain --untracked-files=no') return ok(dirty ? ' M package.json' : '')
     if (fullCommand === 'git fetch --tags --prune') return ok('')
     if (fullCommand === 'git show origin/codex/reliability-upgrades:package.json') {
       return ok(JSON.stringify({ name: 'mac-cleaner', version: '0.5.0' }))
     }
-    if (fullCommand === 'git merge-base --is-ancestor local-commit remote-commit') return diverged ? fail('diverged') : ok('')
+    if (fullCommand === `git merge-base --is-ancestor local-commit ${remoteCommit}`) return diverged ? fail('diverged') : ok('')
     if (fullCommand === 'git pull --ff-only') return ok('')
     if (fullCommand === 'npm ci') return ok('')
     if (fullCommand === 'npm run package:dir') {

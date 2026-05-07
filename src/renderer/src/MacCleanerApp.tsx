@@ -176,9 +176,15 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     async function initialUpdateCheck(): Promise<void> {
       try {
         const status = await macCleaner.checkForLocalUpdate(language)
-        if (!cancelled) setLocalUpdateStatus(status)
-      } catch {
-        if (!cancelled) setLocalUpdateStatus(null)
+        if (!cancelled) {
+          setLocalUpdateStatus(status)
+          setLocalUpdateProgress(createLocalUpdateCheckCompletion(status, language))
+        }
+      } catch (updateError) {
+        if (!cancelled) {
+          setLocalUpdateStatus(null)
+          setLocalUpdateProgress(createLocalUpdateFailureProgress(updateError, language))
+        }
       }
     }
     void initialUpdateCheck()
@@ -440,9 +446,12 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     setIsCheckingUpdate(true)
     setError(null)
     try {
-      setLocalUpdateStatus(await macCleaner.checkForLocalUpdate(language))
+      const status = await macCleaner.checkForLocalUpdate(language)
+      setLocalUpdateStatus(status)
+      setLocalUpdateProgress(createLocalUpdateCheckCompletion(status, language))
     } catch (updateError) {
       setError(formatError(updateError))
+      setLocalUpdateProgress(createLocalUpdateFailureProgress(updateError, language))
     } finally {
       setIsCheckingUpdate(false)
     }
@@ -1526,6 +1535,40 @@ function localizeLocalUpdateProgress(progress: LocalUpdateProgress, language: Ap
 
 function localizeLocalUpdateStatus(status: LocalUpdateStatus, language: AppLanguage): string {
   return status.messageKey ? t(language, status.messageKey, status.messageParams) : status.message
+}
+
+function createLocalUpdateCheckCompletion(status: LocalUpdateStatus, language: AppLanguage): LocalUpdateProgress {
+  if (status.state === 'current') {
+    return {
+      stage: 'done',
+      message: t(language, 'localUpdate.progress.checkedCurrent'),
+      messageKey: 'localUpdate.progress.checkedCurrent'
+    }
+  }
+  if (status.state === 'available') {
+    return {
+      stage: 'done',
+      message: t(language, 'localUpdate.progress.checkedAvailable'),
+      messageKey: 'localUpdate.progress.checkedAvailable'
+    }
+  }
+  const message = localizeLocalUpdateStatus(status, language)
+  return {
+    stage: 'done',
+    message: t(language, 'localUpdate.progress.checkedWithMessage', { message }),
+    messageKey: 'localUpdate.progress.checkedWithMessage',
+    messageParams: { message }
+  }
+}
+
+function createLocalUpdateFailureProgress(error: unknown, language: AppLanguage): LocalUpdateProgress {
+  const message = formatError(error)
+  return {
+    stage: 'failed',
+    message: t(language, 'localUpdate.progress.failed', { error: message }),
+    messageKey: 'localUpdate.progress.failed',
+    messageParams: { error: message }
+  }
 }
 
 function formatLocalUpdateState(status: LocalUpdateStatus | null, language: AppLanguage): string {

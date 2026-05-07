@@ -1,17 +1,26 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MacCleanerApp } from '../src/renderer/src/MacCleanerApp'
 import { demoSummary } from '../src/renderer/src/demoApi'
-import type { AppLanguage, CleanupCandidate, CleanupPreview, LocalUpdateStatus, MacCleanerApi, ScanSummary, ThemePreference } from '../src/shared/types'
+import type {
+  AppLanguage,
+  CleanupCandidate,
+  CleanupPreview,
+  LocalUpdateProgress,
+  LocalUpdateStatus,
+  MacCleanerApi,
+  ScanSummary,
+  ThemePreference
+} from '../src/shared/types'
 
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.7.2',
-  latestVersion: '0.7.2',
+  currentVersion: '0.7.3',
+  latestVersion: '0.7.3',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -50,8 +59,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.7.2',
-      currentVersion: '0.7.2',
+      previousVersion: '0.7.3',
+      currentVersion: '0.7.3',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -123,8 +132,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.2',
-        currentVersion: '0.7.2',
+        previousVersion: '0.7.3',
+        currentVersion: '0.7.3',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -206,8 +215,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.7.2',
-        currentVersion: '0.7.2',
+        previousVersion: '0.7.3',
+        currentVersion: '0.7.3',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -504,7 +513,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.7.3',
+      latestVersion: '0.7.4',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -525,13 +534,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.7.2',
-        currentVersion: '0.7.2',
+        previousVersion: '0.7.3',
+        currentVersion: '0.7.3',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.7.3，即将重启。',
+        message: '已同步到 0.7.4，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.7.3' }
+        messageParams: { currentVersion: '0.7.4' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,
@@ -557,5 +566,36 @@ describe('MacCleanerApp', () => {
     await waitFor(() => {
       expect(api.runLocalSourceUpdate).toHaveBeenCalledWith('zh-CN')
     })
+  })
+
+  it('replaces stale update progress after a completed current-version check', async () => {
+    const user = userEvent.setup()
+    let progressListener: ((progress: LocalUpdateProgress) => void) | undefined
+    const api = makeApi({
+      onLocalUpdateProgress: vi.fn((listener) => {
+        progressListener = listener
+        return () => undefined
+      })
+    })
+
+    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
+
+    expect(await screen.findByText(/检查完成：当前已经是最新版本/)).toBeInTheDocument()
+
+    act(() => {
+      progressListener?.({
+        stage: 'fetching',
+        message: '正在获取远端提交',
+        messageKey: 'localUpdate.progress.fetching'
+      })
+    })
+    expect(screen.getByText(/正在获取远端提交/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /检查更新/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/检查完成：当前已经是最新版本/)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/正在获取远端提交/)).not.toBeInTheDocument()
   })
 })
