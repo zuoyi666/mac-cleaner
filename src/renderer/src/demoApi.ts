@@ -3,6 +3,7 @@ import type {
   CleanupCandidate,
   CleanupPreview,
   CleanupResult,
+  HumanExplanation,
   LocalUpdateConfig,
   LocalUpdateProgress,
   LocalUpdateStatus,
@@ -290,6 +291,7 @@ export const demoSummary: ScanSummary = {
       reasonKey: 'insight.application.reason',
       recommendation: t('zh-CN', 'insight.application.recommendation'),
       recommendationKey: 'insight.application.recommendation',
+      explanation: makeDemoExplanation('zh-CN', 'insight.application.explanation'),
       lastModified: now
     },
     {
@@ -311,6 +313,7 @@ export const demoSummary: ScanSummary = {
       reasonKey: 'insight.privacy.reason',
       recommendation: t('zh-CN', 'insight.privacy.recommendation'),
       recommendationKey: 'insight.privacy.recommendation',
+      explanation: makeDemoExplanation('zh-CN', 'insight.privacy.explanation'),
       lastModified: now
     },
     {
@@ -332,6 +335,7 @@ export const demoSummary: ScanSummary = {
       reasonKey: 'insight.userContent.reason',
       recommendation: t('zh-CN', 'insight.userContent.recommendation'),
       recommendationKey: 'insight.userContent.recommendation',
+      explanation: makeDemoExplanation('zh-CN', 'insight.userContent.explanation'),
       lastModified: now
     },
     {
@@ -353,6 +357,7 @@ export const demoSummary: ScanSummary = {
       reasonKey: 'insight.systemSupport.reason',
       recommendation: t('zh-CN', 'insight.systemSupport.recommendation'),
       recommendationKey: 'insight.systemSupport.recommendation',
+      explanation: makeDemoExplanation('zh-CN', 'insight.systemSupport.explanation'),
       lastModified: now
     }
   ]
@@ -410,6 +415,10 @@ export function createDemoApi(): MacCleanerApi {
         pathSamples: candidates.map((candidate) => candidate.pathPreview),
         impact: candidates.length === 1 ? localizeDemoImpact(candidates[0], language) : t(language, 'demo.batchImpact'),
         impactKey: candidates.length === 1 ? candidates[0].impactKey : 'demo.batchImpact',
+        explanation: candidates.length === 1 ? candidates[0].explanation : makeDemoExplanation(language, 'cleanup.batchConfirm.explanation', {
+          count: candidates.length,
+          bytes: formatBytesForMessage(totalBytes)
+        }),
         warning: t(language, 'cleanup.warning'),
         warningKey: 'cleanup.warning',
         expiresAt: new Date(Date.now() + 300_000).toISOString()
@@ -454,8 +463,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.8.2',
-        latestVersion: '0.8.2',
+        currentVersion: '0.9.0',
+        latestVersion: '0.9.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -479,8 +488,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.8.2',
-        currentVersion: '0.8.2',
+        previousVersion: '0.9.0',
+        currentVersion: '0.9.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),
@@ -523,7 +532,7 @@ function localizeDemoImpact(candidate: CleanupCandidate, language: AppLanguage):
   return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
 }
 
-function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCount' | 'pathSamples' | 'pathSnapshotHash' | 'estimateSource'>): CleanupCandidate {
+function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCount' | 'pathSamples' | 'pathSnapshotHash' | 'estimateSource' | 'explanation'>): CleanupCandidate {
   return {
     ...candidate,
     scanId: demoScanId,
@@ -531,6 +540,53 @@ function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCou
     pathCount: candidate.itemCount,
     pathSamples: [candidate.pathPreview],
     pathSnapshotHash: `hash-${candidate.id}`,
-    estimateSource: candidate.itemCount === 1 ? 'file-stat' : 'filesystem-walk'
+    estimateSource: candidate.itemCount === 1 ? 'file-stat' : 'filesystem-walk',
+    explanation: makeDemoExplanation('zh-CN', candidateExplanationBase(candidate.kind))
   }
+}
+
+function candidateExplanationBase(kind: CleanupCandidate['kind']): string {
+  if (kind === 'cache') return 'candidate.cache.explanation'
+  if (kind === 'log') return 'candidate.log.explanation'
+  if (kind === 'diagnostic') return 'candidate.diagnostic.explanation'
+  if (kind === 'http-storage') return 'candidate.http-storage.explanation'
+  if (kind === 'saved-state') return 'candidate.saved-state.explanation'
+  if (kind === 'download-archive') return 'candidate.download-archive.explanation'
+  if (kind === 'developer-cache') return 'candidate.developer-cache.explanation'
+  return 'candidate.blocked.explanation'
+}
+
+function makeDemoExplanation(
+  language: AppLanguage,
+  baseKey: string,
+  params: Record<string, string | number> = {}
+): HumanExplanation {
+  return {
+    summary: t(language, `${baseKey}.summary`, params),
+    summaryKey: `${baseKey}.summary`,
+    summaryParams: params,
+    what: t(language, `${baseKey}.what`, params),
+    whatKey: `${baseKey}.what`,
+    whatParams: params,
+    cleanability: t(language, `${baseKey}.cleanability`, params),
+    cleanabilityKey: `${baseKey}.cleanability`,
+    cleanabilityParams: params,
+    afterAction: t(language, `${baseKey}.afterAction`, params),
+    afterActionKey: `${baseKey}.afterAction`,
+    afterActionParams: params,
+    keepAdvice: t(language, `${baseKey}.keepAdvice`, params),
+    keepAdviceKey: `${baseKey}.keepAdvice`,
+    keepAdviceParams: params,
+    nextStep: t(language, `${baseKey}.nextStep`, params),
+    nextStepKey: `${baseKey}.nextStep`,
+    nextStepParams: params
+  }
+}
+
+function formatBytesForMessage(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / 1024 ** exponent
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
 }

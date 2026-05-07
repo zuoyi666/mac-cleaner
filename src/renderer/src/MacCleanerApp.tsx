@@ -30,6 +30,7 @@ import type {
   CleanupPreview,
   CleanupResult,
   FullDiskAccessStatus,
+  HumanExplanation,
   LocalUpdateProgress,
   LocalUpdateStatus,
   MacCleanerApi,
@@ -208,7 +209,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         candidate.title.toLowerCase().includes(lowerQuery) ||
         candidate.pathPreview.toLowerCase().includes(lowerQuery) ||
         localizeCandidateCategoryName(candidate, language).toLowerCase().includes(lowerQuery) ||
-        localizeCandidateReason(candidate, language).toLowerCase().includes(lowerQuery)
+        localizeCandidateReason(candidate, language).toLowerCase().includes(lowerQuery) ||
+        localizeCandidateExplanationText(candidate, language).toLowerCase().includes(lowerQuery)
       return matchesCategory && matchesQuery
     })
     return sortCandidates(filtered, sortMode)
@@ -230,7 +232,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         insight.title.toLowerCase().includes(lowerQuery) ||
         insight.pathPreview.toLowerCase().includes(lowerQuery) ||
         localizeInsightReason(insight, language).toLowerCase().includes(lowerQuery) ||
-        localizeInsightRecommendation(insight, language).toLowerCase().includes(lowerQuery)
+        localizeInsightRecommendation(insight, language).toLowerCase().includes(lowerQuery) ||
+        localizeInsightExplanationText(insight, language).toLowerCase().includes(lowerQuery)
       )
     })
   }, [insights, query, language])
@@ -1109,7 +1112,7 @@ function CandidateRow({
       </span>
       <SafetyBadge safety={candidate.safety} language={language} />
       <span className="size-cell">{formatBytes(candidate.sizeBytes)}</span>
-      <span className="impact-cell">{localizeCandidateReason(candidate, language)}</span>
+      <span className="impact-cell">{localizeCandidateExplanation(candidate, 'summary', language, localizeCandidateReason(candidate, language))}</span>
       <span className="row-actions">
         <button
           className="icon-button"
@@ -1190,7 +1193,7 @@ function InsightRow({
         {t(language, `ui.mapRisk.${insight.risk}`)}
       </span>
       <span className="size-cell">{formatBytes(insight.sizeBytes)}</span>
-      <span className="impact-cell">{localizeInsightRecommendation(insight, language)}</span>
+      <span className="impact-cell">{localizeInsightExplanation(insight, 'summary', language, localizeInsightRecommendation(insight, language))}</span>
       <span className="row-actions">
         <button
           className="icon-button"
@@ -1258,8 +1261,15 @@ function CandidateInspector({
           <RiskIcon size={18} />
           <span>{t(language, 'ui.recommendedAction')}</span>
         </div>
-        <strong>{candidate.canClean ? localizeCandidateAction(candidate, language) : t(language, 'ui.cannotClean')}</strong>
-        <p>{localizeCandidateReason(candidate, language)}</p>
+        <strong>
+          {localizeCandidateExplanation(
+            candidate,
+            'nextStep',
+            language,
+            candidate.canClean ? localizeCandidateAction(candidate, language) : t(language, 'ui.cannotClean')
+          )}
+        </strong>
+        <p>{localizeCandidateExplanation(candidate, 'summary', language, localizeCandidateReason(candidate, language))}</p>
       </section>
 
       <div className="detail-stack">
@@ -1310,11 +1320,13 @@ function CandidateInspector({
 
       <section className="impact-box">
         <span>{t(language, 'ui.whatThisIs')}</span>
-        <p>{localizeCandidateReason(candidate, language)}</p>
+        <p>{localizeCandidateExplanation(candidate, 'what', language, localizeCandidateReason(candidate, language))}</p>
+        <span>{t(language, 'ui.canDelete')}</span>
+        <p>{localizeCandidateExplanation(candidate, 'cleanability', language, t(language, meta.descriptionKey))}</p>
         <span>{t(language, 'ui.afterCleanup')}</span>
-        <p>{localizeCandidateImpact(candidate, language)}</p>
+        <p>{localizeCandidateExplanation(candidate, 'afterAction', language, localizeCandidateImpact(candidate, language))}</p>
         <span>{t(language, 'ui.whenToKeep')}</span>
-        <p>{candidate.safety === 'safe' ? t(language, 'ui.whenToKeepSafe') : t(language, meta.descriptionKey)}</p>
+        <p>{localizeCandidateExplanation(candidate, 'keepAdvice', language, candidate.safety === 'safe' ? t(language, 'ui.whenToKeepSafe') : t(language, meta.descriptionKey))}</p>
         <span>{t(language, 'ui.estimateSource')}</span>
         <p>
           {formatEstimateSource(candidate.estimateSource, language)} · {t(language, 'ui.snapshot')} {candidate.pathSnapshotHash.slice(0, 8)}
@@ -1377,8 +1389,8 @@ function InsightInspector({
           <ShieldCheck size={18} />
           <span>{t(language, 'ui.recommendedAction')}</span>
         </div>
-        <strong>{t(language, 'ui.revealLocation')}</strong>
-        <p>{localizeInsightRecommendation(insight, language)}</p>
+        <strong>{localizeInsightExplanation(insight, 'nextStep', language, t(language, 'ui.revealLocation'))}</strong>
+        <p>{localizeInsightExplanation(insight, 'summary', language, localizeInsightRecommendation(insight, language))}</p>
       </section>
 
       <div className="detail-stack">
@@ -1406,9 +1418,13 @@ function InsightInspector({
 
       <section className="impact-box">
         <span>{t(language, 'ui.insightReason')}</span>
-        <p>{localizeInsightReason(insight, language)}</p>
-        <span>{t(language, 'ui.insightRecommendation')}</span>
-        <p>{localizeInsightRecommendation(insight, language)}</p>
+        <p>{localizeInsightExplanation(insight, 'what', language, localizeInsightReason(insight, language))}</p>
+        <span>{t(language, 'ui.canDelete')}</span>
+        <p>{localizeInsightExplanation(insight, 'cleanability', language, t(language, 'ui.insightNotCleanable'))}</p>
+        <span>{t(language, 'ui.afterCleanup')}</span>
+        <p>{localizeInsightExplanation(insight, 'afterAction', language, localizeInsightRecommendation(insight, language))}</p>
+        <span>{t(language, 'ui.whenToKeep')}</span>
+        <p>{localizeInsightExplanation(insight, 'keepAdvice', language, localizeInsightRecommendation(insight, language))}</p>
         <span>{t(language, 'ui.estimateSource')}</span>
         <p>{formatEstimateSource(insight.estimateSource, language)}</p>
       </section>
@@ -1471,9 +1487,21 @@ function ConfirmationModal({
             <span key={sample}>{sample}</span>
           ))}
         </div>
+        {preview.explanation && (
+          <div className="modal-explanation">
+            <div>
+              <strong>{t(language, 'ui.afterCleanup')}</strong>
+              <span>{localizePreviewExplanation(preview, 'afterAction', language, localizePreviewImpact(preview, language))}</span>
+            </div>
+            <div>
+              <strong>{t(language, 'ui.whenToKeep')}</strong>
+              <span>{localizePreviewExplanation(preview, 'keepAdvice', language, localizePreviewWarning(preview, language))}</span>
+            </div>
+          </div>
+        )}
         <div className="modal-warning">
           <AlertTriangle size={16} />
-          <span>{localizePreviewImpact(preview, language)}</span>
+          <span>{localizePreviewExplanation(preview, 'summary', language, localizePreviewImpact(preview, language))}</span>
         </div>
         <p className="modal-footnote">{localizePreviewWarning(preview, language)}</p>
         <div className="modal-actions">
@@ -1594,6 +1622,62 @@ function localizeCandidateReason(candidate: CleanupCandidate, language: AppLangu
 
 function localizeCandidateImpact(candidate: CleanupCandidate, language: AppLanguage): string {
   return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
+}
+
+type HumanExplanationField = 'summary' | 'what' | 'cleanability' | 'afterAction' | 'keepAdvice' | 'nextStep'
+
+function localizeCandidateExplanation(
+  candidate: CleanupCandidate,
+  field: HumanExplanationField,
+  language: AppLanguage,
+  fallback = ''
+): string {
+  return localizeHumanExplanation(candidate.explanation, field, language, fallback)
+}
+
+function localizeCandidateExplanationText(candidate: CleanupCandidate, language: AppLanguage): string {
+  return localizeHumanExplanationText(candidate.explanation, language)
+}
+
+function localizeInsightExplanation(
+  insight: StorageInsight,
+  field: HumanExplanationField,
+  language: AppLanguage,
+  fallback = ''
+): string {
+  return localizeHumanExplanation(insight.explanation, field, language, fallback)
+}
+
+function localizeInsightExplanationText(insight: StorageInsight, language: AppLanguage): string {
+  return localizeHumanExplanationText(insight.explanation, language)
+}
+
+function localizePreviewExplanation(
+  preview: CleanupPreview,
+  field: HumanExplanationField,
+  language: AppLanguage,
+  fallback = ''
+): string {
+  return localizeHumanExplanation(preview.explanation, field, language, fallback)
+}
+
+function localizeHumanExplanation(
+  explanation: HumanExplanation | undefined,
+  field: HumanExplanationField,
+  language: AppLanguage,
+  fallback = ''
+): string {
+  if (!explanation) return fallback
+  const key = explanation[`${field}Key` as keyof HumanExplanation] as string | undefined
+  const params = explanation[`${field}Params` as keyof HumanExplanation] as Record<string, string | number> | undefined
+  return key ? t(language, key, params) : explanation[field] || fallback
+}
+
+function localizeHumanExplanationText(explanation: HumanExplanation | undefined, language: AppLanguage): string {
+  if (!explanation) return ''
+  return (['summary', 'what', 'cleanability', 'afterAction', 'keepAdvice', 'nextStep'] as HumanExplanationField[])
+    .map((field) => localizeHumanExplanation(explanation, field, language))
+    .join(' ')
 }
 
 function localizeCandidateAction(candidate: CleanupCandidate, language: AppLanguage): string {

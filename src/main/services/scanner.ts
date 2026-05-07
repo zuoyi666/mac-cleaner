@@ -9,6 +9,7 @@ import type {
   CleanupKind,
   EstimateSource,
   FullDiskAccessStatus,
+  HumanExplanation,
   IssueGroupKind,
   SafetyLevel,
   ScanCoverage,
@@ -731,7 +732,8 @@ function makeBlockedInsight(root: string, homeDir: string, ctx: MeasureContext, 
     reasonKey: 'insight.blocked.reason',
     reasonParams: { error },
     recommendation: t(ctx.language, 'insight.blocked.recommendation'),
-    recommendationKey: 'insight.blocked.recommendation'
+    recommendationKey: 'insight.blocked.recommendation',
+    explanation: makeHumanExplanation(ctx.language, 'insight.blocked.explanation', { error })
   }
 }
 
@@ -762,6 +764,7 @@ function makeStorageInsight(
     reasonKey: classification.reasonKey,
     recommendation: t(ctx.language, classification.recommendationKey),
     recommendationKey: classification.recommendationKey,
+    explanation: makeHumanExplanation(ctx.language, classification.explanationKeyBase),
     lastModified: measured.lastModified?.toISOString()
   }
 }
@@ -771,6 +774,7 @@ function classifyInsight(targetPath: string, homeDir: string): {
   risk: StorageInsightRisk
   reasonKey: string
   recommendationKey: string
+  explanationKeyBase: string
 } {
   const normalized = path.resolve(targetPath)
   const basename = path.basename(normalized)
@@ -783,7 +787,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: 'application',
       risk: 'not-recommended',
       reasonKey: 'insight.application.reason',
-      recommendationKey: 'insight.application.recommendation'
+      recommendationKey: 'insight.application.recommendation',
+      explanationKeyBase: 'insight.application.explanation'
     }
   }
 
@@ -792,7 +797,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: 'privacy-data',
       risk: 'not-recommended',
       reasonKey: 'insight.privacy.reason',
-      recommendationKey: 'insight.privacy.recommendation'
+      recommendationKey: 'insight.privacy.recommendation',
+      explanationKeyBase: 'insight.privacy.explanation'
     }
   }
 
@@ -801,7 +807,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: 'system-support',
       risk: 'safe-opportunity',
       reasonKey: 'insight.cache.reason',
-      recommendationKey: 'insight.cache.recommendation'
+      recommendationKey: 'insight.cache.recommendation',
+      explanationKeyBase: 'insight.cache.explanation'
     }
   }
 
@@ -810,7 +817,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: homeParts[0] === 'Downloads' ? 'large-file' : 'user-content',
       risk: 'review',
       reasonKey: 'insight.userContent.reason',
-      recommendationKey: 'insight.userContent.recommendation'
+      recommendationKey: 'insight.userContent.recommendation',
+      explanationKeyBase: 'insight.userContent.explanation'
     }
   }
 
@@ -819,7 +827,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: 'developer-data',
       risk: 'review',
       reasonKey: 'insight.developerData.reason',
-      recommendationKey: 'insight.developerData.recommendation'
+      recommendationKey: 'insight.developerData.recommendation',
+      explanationKeyBase: 'insight.developerData.explanation'
     }
   }
 
@@ -828,7 +837,8 @@ function classifyInsight(targetPath: string, homeDir: string): {
       kind: 'system-support',
       risk: 'not-recommended',
       reasonKey: 'insight.systemSupport.reason',
-      recommendationKey: 'insight.systemSupport.recommendation'
+      recommendationKey: 'insight.systemSupport.recommendation',
+      explanationKeyBase: 'insight.systemSupport.explanation'
     }
   }
 
@@ -836,8 +846,47 @@ function classifyInsight(targetPath: string, homeDir: string): {
     kind: 'directory',
     risk: 'review',
     reasonKey: 'insight.directory.reason',
-    recommendationKey: 'insight.directory.recommendation'
+    recommendationKey: 'insight.directory.recommendation',
+    explanationKeyBase: 'insight.directory.explanation'
   }
+}
+
+function makeHumanExplanation(
+  language: AppLanguage,
+  baseKey: string,
+  params: Record<string, string | number> = {}
+): HumanExplanation {
+  return {
+    summary: t(language, `${baseKey}.summary`, params),
+    summaryKey: `${baseKey}.summary`,
+    summaryParams: params,
+    what: t(language, `${baseKey}.what`, params),
+    whatKey: `${baseKey}.what`,
+    whatParams: params,
+    cleanability: t(language, `${baseKey}.cleanability`, params),
+    cleanabilityKey: `${baseKey}.cleanability`,
+    cleanabilityParams: params,
+    afterAction: t(language, `${baseKey}.afterAction`, params),
+    afterActionKey: `${baseKey}.afterAction`,
+    afterActionParams: params,
+    keepAdvice: t(language, `${baseKey}.keepAdvice`, params),
+    keepAdviceKey: `${baseKey}.keepAdvice`,
+    keepAdviceParams: params,
+    nextStep: t(language, `${baseKey}.nextStep`, params),
+    nextStepKey: `${baseKey}.nextStep`,
+    nextStepParams: params
+  }
+}
+
+function candidateExplanationKeyBase(kind: CleanupKind): string {
+  if (kind === 'cache') return 'candidate.cache.explanation'
+  if (kind === 'log') return 'candidate.log.explanation'
+  if (kind === 'diagnostic') return 'candidate.diagnostic.explanation'
+  if (kind === 'http-storage') return 'candidate.http-storage.explanation'
+  if (kind === 'saved-state') return 'candidate.saved-state.explanation'
+  if (kind === 'download-archive') return 'candidate.download-archive.explanation'
+  if (kind === 'developer-cache') return 'candidate.developer-cache.explanation'
+  return 'candidate.blocked.explanation'
 }
 
 function isPrivacyOrImportantPath(targetPath: string, homeDir: string): boolean {
@@ -896,6 +945,7 @@ function makeCandidate(
     reasonKey: category.reasonKey,
     impact: t(ctx.language, category.impactKey),
     impactKey: category.impactKey,
+    explanation: makeHumanExplanation(ctx.language, candidateExplanationKeyBase(category.kind)),
     actionLabel: t(ctx.language, category.actionLabelKey),
     actionLabelKey: category.actionLabelKey,
     lastModified: measured.lastModified?.toISOString(),
@@ -943,6 +993,10 @@ function makeBlockedCandidate(
     reasonKey: messageKey,
     impact: t(ctx.language, 'candidate.blocked.impact'),
     impactKey: 'candidate.blocked.impact',
+    explanation: makeHumanExplanation(ctx.language, 'candidate.blocked.explanation', {
+      categoryName,
+      reason: message
+    }),
     actionLabel: t(ctx.language, 'candidate.blocked.action'),
     actionLabelKey: 'candidate.blocked.action',
     blockedReason: message,
@@ -1052,6 +1106,11 @@ function makeGroupedCandidate(
     reasonKey: first.reasonKey,
     impact: t(language, first.impactKey),
     impactKey: first.impactKey,
+    explanation: makeHumanExplanation(language, 'candidate.group.explanation', {
+      count: sortedItems.length,
+      largest: formatBytesForMessage(largestItemBytes),
+      categoryName: t(language, category.nameKey)
+    }),
     actionLabel: t(language, first.actionLabelKey),
     actionLabelKey: first.actionLabelKey,
     lastModified,

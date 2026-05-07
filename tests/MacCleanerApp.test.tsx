@@ -19,8 +19,8 @@ import type {
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.8.2',
-  latestVersion: '0.8.2',
+  currentVersion: '0.9.0',
+  latestVersion: '0.9.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -59,8 +59,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.8.2',
-      currentVersion: '0.8.2',
+      previousVersion: '0.9.0',
+      currentVersion: '0.9.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -102,6 +102,7 @@ describe('MacCleanerApp', () => {
       pathCount: 1,
       pathSamples: [firstCandidate.pathPreview],
       impact: firstCandidate.impact,
+      explanation: firstCandidate.explanation,
       warning: '确认后会将这些项目移到废纸篓，不会永久删除。',
       expiresAt: new Date(Date.now() + 300_000).toISOString()
     }
@@ -132,8 +133,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.8.2',
-        currentVersion: '0.8.2',
+        previousVersion: '0.9.0',
+        currentVersion: '0.9.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -154,11 +155,13 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={api} initialSummary={null} />)
 
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
-    expect(await screen.findAllByText('安全可清理')).not.toHaveLength(0)
-    expect(screen.getAllByText('需确认')).not.toHaveLength(0)
+    expect(await screen.findAllByText('可以放心清理')).not.toHaveLength(0)
+    expect(screen.getAllByText('先确认一下')).not.toHaveLength(0)
     expect(screen.getByText('安全清理控制台')).toBeInTheDocument()
-    expect(screen.getByText('建议操作')).toBeInTheDocument()
+    expect(screen.getByText('我的建议')).toBeInTheDocument()
+    expect(screen.getByText('能不能删')).toBeInTheDocument()
     expect(screen.getByText('处理后会怎样')).toBeInTheDocument()
+    expect(screen.getAllByText(/可重建|开发工具缓存/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
@@ -168,6 +171,7 @@ describe('MacCleanerApp', () => {
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
     expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
     expect(screen.getByText('只移动到废纸篓')).toBeInTheDocument()
+    expect(screen.getAllByText('什么情况先保留').length).toBeGreaterThan(0)
     expect(screen.getAllByText('路径数量').length).toBeGreaterThan(0)
     expect(api.moveToTrash).not.toHaveBeenCalled()
 
@@ -220,8 +224,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.8.2',
-        currentVersion: '0.8.2',
+        previousVersion: '0.9.0',
+        currentVersion: '0.9.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -292,6 +296,21 @@ describe('MacCleanerApp', () => {
       reasonKey: undefined,
       impact: '应用不会尝试绕过 macOS 权限，也不会清理无法确认安全性的路径。',
       impactKey: 'candidate.blocked.impact',
+      explanation: {
+        summary: '这个位置现在看不清，Mac Cleaner 不会帮你删。',
+        summaryKey: 'candidate.blocked.explanation.summary',
+        what: '这是扫描时遇到的受限位置或异常目录：无法访问该目录：EPERM',
+        whatKey: 'candidate.blocked.explanation.what',
+        whatParams: { reason: '无法访问该目录：EPERM' },
+        cleanability: '不要一键删。工具无法确认它是不是安全缓存。',
+        cleanabilityKey: 'candidate.blocked.explanation.cleanability',
+        afterAction: '这里不会进入清理流程，因此不会移动或修改任何文件。',
+        afterActionKey: 'candidate.blocked.explanation.afterAction',
+        keepAdvice: '如果你想了解空间占用，可以授权后重新扫描；不授权也不影响其它安全项清理。',
+        keepAdviceKey: 'candidate.blocked.explanation.keepAdvice',
+        nextStep: '只把它当作提示看，优先处理上方明确安全的候选项。',
+        nextStepKey: 'candidate.blocked.explanation.nextStep'
+      },
       actionLabel: '不可清理',
       actionLabelKey: 'candidate.blocked.action',
       blockedReason: '无法访问该目录：EPERM',
@@ -327,7 +346,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={blockedSummary} />)
     await screen.findByText('已是最新')
 
-    expect(screen.getAllByText('不建议清理')).not.toHaveLength(0)
+    expect(screen.getAllByText('不要一键删')).not.toHaveLength(0)
     expect(screen.getByText('权限与安全边界')).toBeInTheDocument()
     expect(screen.getByText(/不会申请管理员权限/)).toBeInTheDocument()
     expect(screen.getByText(/不会进入自动清理流程/)).toBeInTheDocument()
@@ -420,6 +439,9 @@ describe('MacCleanerApp', () => {
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
     expect(screen.getAllByText('Review First')).not.toHaveLength(0)
+    expect(screen.getByText('My recommendation')).toBeInTheDocument()
+    expect(screen.getByText('Can it be removed?')).toBeInTheDocument()
+    expect(screen.getAllByText(/Regeneratable|Developer cache/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: `Move to Trash: ${firstCandidate.title}` }))
 
@@ -524,7 +546,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.8.3',
+      latestVersion: '0.9.1',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -545,13 +567,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.8.2',
-        currentVersion: '0.8.3',
+        previousVersion: '0.9.0',
+        currentVersion: '0.9.1',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.8.3，即将重启。',
+        message: '已同步到 0.9.1，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.8.3' }
+        messageParams: { currentVersion: '0.9.1' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
-import type { AppLanguage, CleanupPreview, CleanupResult } from '../../shared/types'
+import type { AppLanguage, CleanupPreview, CleanupResult, HumanExplanation } from '../../shared/types'
 import { t } from '../../shared/i18n'
 import type { InternalCandidate } from './scanner'
 import { isWithinPath } from './pathSafety'
@@ -56,6 +56,7 @@ export function createCleanupManager(
         pathSamples,
         impact: candidates.length === 1 ? localizedCandidateImpact(candidates[0], language) : summarizeBatchImpact(candidates, language),
         impactKey: candidates.length === 1 ? candidates[0].impactKey : batchImpactKey(candidates),
+        explanation: candidates.length === 1 ? candidates[0].explanation : batchExplanation(candidates, language),
         warning: t(language, 'cleanup.warning'),
         warningKey: 'cleanup.warning',
         expiresAt: new Date(expiresAt).toISOString()
@@ -236,6 +237,44 @@ function batchImpactKey(candidates: InternalCandidate[]): string {
 
 function summarizeBatchImpact(candidates: InternalCandidate[], language: AppLanguage): string {
   return t(language, batchImpactKey(candidates))
+}
+
+function batchExplanation(candidates: InternalCandidate[], language: AppLanguage): HumanExplanation {
+  const baseKey = candidates.some((candidate) => candidate.safety === 'confirm')
+    ? 'cleanup.batchConfirm.explanation'
+    : 'cleanup.batchSafe.explanation'
+  const params = {
+    count: candidates.length,
+    bytes: formatBytesForMessage(candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0))
+  }
+  return {
+    summary: t(language, `${baseKey}.summary`, params),
+    summaryKey: `${baseKey}.summary`,
+    summaryParams: params,
+    what: t(language, `${baseKey}.what`, params),
+    whatKey: `${baseKey}.what`,
+    whatParams: params,
+    cleanability: t(language, `${baseKey}.cleanability`, params),
+    cleanabilityKey: `${baseKey}.cleanability`,
+    cleanabilityParams: params,
+    afterAction: t(language, `${baseKey}.afterAction`, params),
+    afterActionKey: `${baseKey}.afterAction`,
+    afterActionParams: params,
+    keepAdvice: t(language, `${baseKey}.keepAdvice`, params),
+    keepAdviceKey: `${baseKey}.keepAdvice`,
+    keepAdviceParams: params,
+    nextStep: t(language, `${baseKey}.nextStep`, params),
+    nextStepKey: `${baseKey}.nextStep`,
+    nextStepParams: params
+  }
+}
+
+function formatBytesForMessage(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / 1024 ** exponent
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
 }
 
 function formatCleanupFailure(candidateId: string, targetPath: string, error: unknown, language: AppLanguage): CleanupResult['failed'][number] {
