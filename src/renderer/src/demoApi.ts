@@ -463,8 +463,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.9.1',
-        latestVersion: '0.9.1',
+        currentVersion: '0.9.2',
+        latestVersion: '0.9.2',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -488,8 +488,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.9.1',
-        currentVersion: '0.9.1',
+        previousVersion: '0.9.2',
+        currentVersion: '0.9.2',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),

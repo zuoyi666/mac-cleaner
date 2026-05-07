@@ -175,7 +175,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.9.1` 修复扫描状态问题详情的滚动体验：展开黄色跳过原因后，右侧详情区域可以独立上下滚动查看全部内容，不再让用户误以为只显示了第一组问题。`v0.9.x` 继续保留“说人话”解释体验，清理按钮仍只出现在固定安全 catalog 中，不新增自动删除能力。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.9.2` 继续修复扫描状态问题详情：展开黄色跳过原因后，详情内容被限制在右侧卡片内部的固定滚动视窗中，鼠标滚轮或触控板可以在该区域内上下查看全部跳过原因和示例路径。`v0.9.x` 继续保留“说人话”解释体验，清理按钮仍只出现在固定安全 catalog 中，不新增自动删除能力。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 
