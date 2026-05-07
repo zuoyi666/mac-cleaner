@@ -19,8 +19,8 @@ import type {
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.9.0',
-  latestVersion: '0.9.0',
+  currentVersion: '0.9.1',
+  latestVersion: '0.9.1',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -59,8 +59,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.9.0',
-      currentVersion: '0.9.0',
+      previousVersion: '0.9.1',
+      currentVersion: '0.9.1',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -133,8 +133,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.9.0',
-        currentVersion: '0.9.0',
+        previousVersion: '0.9.1',
+        currentVersion: '0.9.1',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -224,8 +224,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.9.0',
-        currentVersion: '0.9.0',
+        previousVersion: '0.9.1',
+        currentVersion: '0.9.1',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -371,15 +371,44 @@ describe('MacCleanerApp', () => {
   it('opens the Full Disk Access guide from grouped permission issues', async () => {
     const user = userEvent.setup()
     const api = makeApi()
+    const multiIssueSummary: ScanSummary = {
+      ...demoSummary,
+      issues: [
+        ...demoSummary.issues,
+        {
+          id: 'demo-symlink-issue',
+          path: '~/Library/Caches/Homebrew/ffmpeg--8.1.1',
+          message: '跳过符号链接。',
+          messageKey: 'issue.skipSymlink',
+          severity: 'warning'
+        }
+      ],
+      issueGroups: [
+        ...demoSummary.issueGroups,
+        {
+          id: 'issue-group-symlink',
+          kind: 'symlink',
+          title: '1 个符号链接已跳过',
+          titleKey: 'issueGroup.symlink.title',
+          message: '符号链接可能指向其它位置，工具不会跟随它们跨出安全边界。',
+          messageKey: 'issueGroup.symlink.message',
+          messageParams: { count: 1 },
+          severity: 'warning',
+          count: 1,
+          pathSamples: ['~/Library/Caches/Homebrew/ffmpeg--8.1.1']
+        }
+      ]
+    }
 
-    render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
+    render(<MacCleanerApp api={api} initialSummary={multiIssueSummary} />)
 
-    const issueSummary = screen.getByText(/1 个目录因权限/)
+    const issueSummary = screen.getByText(/2 个目录因权限/)
     await user.click(issueSummary)
 
     const issueDetails = issueSummary.closest('details')
     expect(issueDetails).toHaveClass('issue-details')
-    expect(issueDetails?.querySelector('.issue-details-body')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '可滚动的扫描问题详情' })).toHaveClass('issue-details-body')
+    expect(screen.getByText(/上下滚动/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /开启 Full Disk Access/ }))
 
@@ -546,7 +575,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.9.1',
+      latestVersion: '0.9.2',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -567,13 +596,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.9.0',
-        currentVersion: '0.9.1',
+        previousVersion: '0.9.1',
+        currentVersion: '0.9.2',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.9.1，即将重启。',
+        message: '已同步到 0.9.2，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.9.1' }
+        messageParams: { currentVersion: '0.9.2' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,

@@ -1094,8 +1094,8 @@ h1 {
 .metric-card.muted .metric-icon { color: var(--muted); background: var(--surface-subtle); }
 
 .progress-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 17px;
   height: clamp(360px, 42vh, 520px);
   overflow: hidden;
@@ -1170,14 +1170,16 @@ h1 {
 }
 
 .issue-details {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   color: var(--confirm);
   font-size: 12px;
   line-height: 17px;
+}
+
+.issue-details[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .issue-details:not([open]) {
@@ -1213,16 +1215,50 @@ h1 {
 }
 
 .issue-details-body {
-  flex: 1 1 auto;
   min-height: 0;
   margin-top: 8px;
   overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-color: var(--accent) transparent;
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
 }
 
 .issue-details:not([open]) .issue-details-body {
   display: none;
+}
+
+.issue-details-body:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.issue-details-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.issue-details-body::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.issue-details-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.issue-scroll-hint {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 15px;
 }
 
 .coverage-line {
