@@ -82,7 +82,7 @@ export function createLocalUpdateService(options: LocalUpdateServiceOptions = {}
       }
       updateRunning = true
       try {
-        const status = await checkForUpdate(config, runCommand, language, onProgress)
+        const status = await checkForUpdate(config, runCommand, language, onProgress, { emitCompletion: false })
         if (!status.updateAvailable) {
           if (status.state !== 'current') {
             throw new Error(status.message)
@@ -155,20 +155,27 @@ export async function checkForUpdate(
   config: LocalUpdateConfig,
   runCommand: CommandRunner = defaultCommandRunner,
   language: AppLanguage = 'zh-CN',
-  onProgress?: (progress: LocalUpdateProgress) => void
+  onProgress?: (progress: LocalUpdateProgress) => void,
+  options: { emitCompletion?: boolean } = {}
 ): Promise<LocalUpdateStatus> {
   emit(onProgress, language, 'checking', 'localUpdate.progress.checking')
   const checkedAt = new Date().toISOString()
+  const finish = (status: LocalUpdateStatus): LocalUpdateStatus => {
+    if (options.emitCompletion ?? true) {
+      emitCheckCompletion(onProgress, language, status)
+    }
+    return status
+  }
   try {
     const repoInfo = await readRepoInfo(config, runCommand)
     if (!repoInfo.remoteUrl || !SUPPORTED_REMOTE_RE.test(repoInfo.remoteUrl)) {
-      return makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.invalidRepo')
+      return finish(makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.invalidRepo'))
     }
     if (!repoInfo.upstream) {
-      return makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.noUpstream')
+      return finish(makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.noUpstream'))
     }
     if (repoInfo.dirty) {
-      return makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.blockedDirty')
+      return finish(makeStatus('blocked', false, config, repoInfo, language, checkedAt, 'localUpdate.status.blockedDirty'))
     }
 
     emit(onProgress, language, 'fetching', 'localUpdate.progress.fetching')
@@ -177,20 +184,20 @@ export async function checkForUpdate(
     const remoteCommit = refreshedInfo.remoteCommit
     const localCommit = refreshedInfo.localCommit
     if (!remoteCommit || !localCommit) {
-      return makeStatus('unknown', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.checkFailed', {
+      return finish(makeStatus('unknown', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.checkFailed', {
         error: 'Missing commit information'
-      })
+      }))
     }
     const ancestor = await runCommand('git', ['merge-base', '--is-ancestor', localCommit, remoteCommit], { cwd: config.repoPath })
     if (ancestor.exitCode !== 0) {
-      return makeStatus('blocked', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.blockedDiverged')
+      return finish(makeStatus('blocked', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.blockedDiverged'))
     }
     if (localCommit !== remoteCommit) {
-      return makeStatus('available', true, config, refreshedInfo, language, checkedAt, 'localUpdate.status.available')
+      return finish(makeStatus('available', true, config, refreshedInfo, language, checkedAt, 'localUpdate.status.available'))
     }
-    return makeStatus('current', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.current')
+    return finish(makeStatus('current', false, config, refreshedInfo, language, checkedAt, 'localUpdate.status.current'))
   } catch (error) {
-    return makeStatus(
+    return finish(makeStatus(
       'unknown',
       false,
       config,
@@ -199,7 +206,7 @@ export async function checkForUpdate(
       checkedAt,
       'localUpdate.status.checkFailed',
       { error: formatError(error) }
-    )
+    ))
   }
 }
 
@@ -340,6 +347,22 @@ function emit(
     messageKey,
     messageParams
   })
+}
+
+function emitCheckCompletion(
+  onProgress: ((progress: LocalUpdateProgress) => void) | undefined,
+  language: AppLanguage,
+  status: LocalUpdateStatus
+): void {
+  if (status.state === 'current') {
+    emit(onProgress, language, 'done', 'localUpdate.progress.checkedCurrent')
+    return
+  }
+  if (status.state === 'available') {
+    emit(onProgress, language, 'done', 'localUpdate.progress.checkedAvailable')
+    return
+  }
+  emit(onProgress, language, 'done', 'localUpdate.progress.checkedWithMessage', { message: status.message })
 }
 
 function defaultCommandRunner(command: string, args: string[], options: { cwd: string }): Promise<CommandResult> {
