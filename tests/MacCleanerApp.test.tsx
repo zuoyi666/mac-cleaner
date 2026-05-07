@@ -19,8 +19,8 @@ import type {
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.8.1',
-  latestVersion: '0.8.1',
+  currentVersion: '0.8.2',
+  latestVersion: '0.8.2',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -59,8 +59,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.8.1',
-      currentVersion: '0.8.1',
+      previousVersion: '0.8.2',
+      currentVersion: '0.8.2',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -132,8 +132,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.8.1',
-        currentVersion: '0.8.1',
+        previousVersion: '0.8.2',
+        currentVersion: '0.8.2',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -220,8 +220,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.8.1',
-        currentVersion: '0.8.1',
+        previousVersion: '0.8.2',
+        currentVersion: '0.8.2',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -355,7 +355,13 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
-    await user.click(screen.getByText(/1 个目录因权限/))
+    const issueSummary = screen.getByText(/1 个目录因权限/)
+    await user.click(issueSummary)
+
+    const issueDetails = issueSummary.closest('details')
+    expect(issueDetails).toHaveClass('issue-details')
+    expect(issueDetails?.querySelector('.issue-details-body')).toBeInTheDocument()
+
     await user.click(screen.getByRole('button', { name: /开启 Full Disk Access/ }))
 
     expect(api.openFullDiskAccessSettings).toHaveBeenCalled()
@@ -518,7 +524,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.8.2',
+      latestVersion: '0.8.3',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -539,13 +545,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.8.1',
-        currentVersion: '0.8.1',
+        previousVersion: '0.8.2',
+        currentVersion: '0.8.3',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.8.2，即将重启。',
+        message: '已同步到 0.8.3，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.8.2' }
+        messageParams: { currentVersion: '0.8.3' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,
