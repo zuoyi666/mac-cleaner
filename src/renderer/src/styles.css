@@ -630,6 +630,19 @@ button {
   border-top: 1px solid var(--line);
 }
 
+.local-update-box > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.local-update-box > span:not(.update-progress-line) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .local-update-heading {
   display: flex;
   align-items: center;
@@ -667,7 +680,13 @@ button {
 }
 
 .update-progress-line {
+  display: block;
   color: var(--accent) !important;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .local-update-actions {
