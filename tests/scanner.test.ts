@@ -136,6 +136,7 @@ describe('scanStorage', () => {
     expect(insight?.recommendationKey).toBe('insight.userContent.recommendation')
     expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('Documents'))).toBe(false)
     expect(run.summary.coverage.mode).toBe('comprehensive')
+    expect(run.summary.coverage.fullDiskAccessStatus).toBe('unknown')
   })
 
   it('groups scan issues and keeps permission-limited paths out of cleanup', async () => {

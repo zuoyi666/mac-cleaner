@@ -12,6 +12,7 @@ export type CandidateDisplayKind = 'single' | 'group'
 export type RevealTargetKind = 'file' | 'directory' | 'missing' | 'unknown'
 export type RevealMethod = 'finder-reveal' | 'open-path' | 'none'
 export type StorageInsightRisk = 'safe-opportunity' | 'review' | 'not-recommended'
+export type FullDiskAccessStatus = 'unknown' | 'likely-granted' | 'likely-missing'
 export type StorageInsightKind =
   | 'directory'
   | 'application'
@@ -112,6 +113,7 @@ export interface ScanIssueGroup {
 
 export interface ScanCoverage {
   mode: ScanMode
+  fullDiskAccessStatus: FullDiskAccessStatus
   roots: string[]
   scannedRootCount: number
   skippedRootCount: number
