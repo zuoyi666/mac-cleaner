@@ -173,6 +173,8 @@ function registerIpcHandlers(): void {
         totalBytes: cleanupPreview.totalBytes,
         pathCount: cleanupPreview.pathCount,
         pathSamples: cleanupPreview.pathSamples,
+        operationPaths: cleanupPreview.operationPaths,
+        trustReport: cleanupPreview.trustReport,
         actionLabel: recommendation.actionLabel,
         actionLabelKey: recommendation.actionLabelKey,
         actionLabelParams: recommendation.actionLabelParams,

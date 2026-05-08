@@ -3,6 +3,7 @@ import type {
   CleanupCandidate,
   CleanupPreview,
   CleanupResult,
+  CleanupTrustReport,
   HumanExplanation,
   LocalUpdateConfig,
   LocalUpdateProgress,
@@ -486,6 +487,7 @@ export function createDemoApi(): MacCleanerApi {
       const candidates = demoSummary.candidates.filter((item) => candidateIds.includes(item.id))
       if (!candidates.length) throw new Error(t(language, 'demo.notFound'))
       const totalBytes = candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
+      const operationPaths = candidates.map((candidate) => candidate.pathPreview)
       return {
         candidateIds,
         confirmationId: `demo-confirm-${candidateIds.join('-')}`,
@@ -496,7 +498,9 @@ export function createDemoApi(): MacCleanerApi {
         titleParams: candidates.length === 1 ? undefined : { count: candidates.length },
         totalBytes,
         pathCount: candidates.reduce((sum, candidate) => sum + candidate.pathCount, 0),
-        pathSamples: candidates.map((candidate) => candidate.pathPreview),
+        pathSamples: operationPaths.slice(0, 8),
+        operationPaths,
+        trustReport: makeDemoTrustReport(candidates, totalBytes, operationPaths, language),
         impact: candidates.length === 1 ? localizeDemoImpact(candidates[0], language) : t(language, 'demo.batchImpact'),
         impactKey: candidates.length === 1 ? candidates[0].impactKey : 'demo.batchImpact',
         explanation: candidates.length === 1 ? candidates[0].explanation : makeDemoExplanation(language, 'cleanup.batchConfirm.explanation', {
@@ -653,6 +657,56 @@ export function createDemoApi(): MacCleanerApi {
 
 function localizeDemoImpact(candidate: CleanupCandidate, language: AppLanguage): string {
   return candidate.impactKey ? t(language, candidate.impactKey) : candidate.impact
+}
+
+function makeDemoTrustReport(
+  candidates: CleanupCandidate[],
+  totalBytes: number,
+  operationPaths: string[],
+  language: AppLanguage
+): CleanupTrustReport {
+  const hasReviewItems = candidates.some((candidate) => candidate.safety === 'confirm')
+  const params = {
+    count: candidates.length,
+    paths: operationPaths.length,
+    bytes: formatBytesForMessage(totalBytes),
+    roots: candidates.map((candidate) => candidate.pathPreview.split('/').slice(0, 3).join('/')).join(', '),
+    categories: candidates.map((candidate) => candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName).join(', ')
+  }
+  const item = (labelKey: string, detailKey: string, tone: 'safe' | 'confirm' | 'blocked' | 'info') => ({
+    label: t(language, labelKey, params),
+    labelKey,
+    labelParams: params,
+    detail: t(language, detailKey, params),
+    detailKey,
+    detailParams: params,
+    tone
+  })
+
+  return {
+    summary: t(language, hasReviewItems ? 'trust.summary.review' : 'trust.summary.recommended', params),
+    summaryKey: hasReviewItems ? 'trust.summary.review' : 'trust.summary.recommended',
+    summaryParams: params,
+    evidence: [
+      item('trust.evidence.scan.label', 'trust.evidence.scan.detail', 'safe'),
+      item('trust.evidence.allowlist.label', 'trust.evidence.allowlist.detail', 'safe'),
+      item('trust.evidence.snapshot.label', 'trust.evidence.snapshot.detail', 'safe'),
+      item('trust.evidence.symlink.label', 'trust.evidence.symlink.detail', 'safe')
+    ],
+    guarantees: [
+      item('trust.guarantee.trash.label', 'trust.guarantee.trash.detail', 'safe'),
+      item('trust.guarantee.noAdmin.label', 'trust.guarantee.noAdmin.detail', 'safe'),
+      item('trust.guarantee.noArbitrary.label', 'trust.guarantee.noArbitrary.detail', 'safe')
+    ],
+    exclusions: [
+      item('trust.exclusion.outsideList.label', 'trust.exclusion.outsideList.detail', 'blocked'),
+      item('trust.exclusion.system.label', 'trust.exclusion.system.detail', 'blocked'),
+      item('trust.exclusion.trashEmpty.label', 'trust.exclusion.trashEmpty.detail', 'blocked')
+    ],
+    recovery: t(language, 'trust.recovery.trash', params),
+    recoveryKey: 'trust.recovery.trash',
+    recoveryParams: params
+  }
 }
 
 function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCount' | 'pathSamples' | 'pathSnapshotHash' | 'estimateSource' | 'explanation'>): CleanupCandidate {

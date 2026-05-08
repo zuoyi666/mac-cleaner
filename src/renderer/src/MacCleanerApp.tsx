@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Copy,
   DownloadCloud,
   FileArchive,
   FolderOpen,
@@ -44,6 +45,7 @@ import type {
   StorageInsightRisk,
   StorageRecommendation,
   StorageRecommendationRisk,
+  TrustEvidenceItem,
   AppTheme,
   ThemePreference
 } from '../../shared/types'
@@ -387,6 +389,18 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setError(formatError(cleanupError))
     } finally {
       setIsCleaning(false)
+    }
+  }
+
+  async function copyCleanupReviewReport(): Promise<void> {
+    if (!preview) return
+    try {
+      await navigator.clipboard.writeText(buildCodexReviewReport(preview, language))
+      setError(null)
+      setNotice(t(language, 'ui.codexReportCopied'))
+    } catch {
+      setNotice(null)
+      setError(t(language, 'ui.codexReportCopyFailed'))
     }
   }
 
@@ -1109,6 +1123,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           language={language}
           isCleaning={isCleaning}
           onCancel={() => setPreview(null)}
+          onCopyReport={copyCleanupReviewReport}
           onConfirm={confirmCleanup}
         />
       )}
@@ -1742,17 +1757,20 @@ function ConfirmationModal({
   language,
   isCleaning,
   onCancel,
+  onCopyReport,
   onConfirm
 }: {
   preview: CleanupPreview
   language: AppLanguage
   isCleaning: boolean
   onCancel: () => void
+  onCopyReport: () => void
   onConfirm: () => void
 }): JSX.Element {
+  const operationPaths = preview.operationPaths?.length ? preview.operationPaths : preview.pathSamples
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <section className="modal trust-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <button className="modal-close icon-button" onClick={onCancel} aria-label={t(language, 'ui.closeModal')}>
           <X size={16} />
         </button>
@@ -1763,6 +1781,12 @@ function ConfirmationModal({
         <p>
           {renderConfirmText(preview, language)}
         </p>
+        {preview.trustReport && (
+          <div className="trust-decision">
+            <span>{t(language, 'ui.trustDecision')}</span>
+            <strong>{localizeTrustSummary(preview.trustReport, language)}</strong>
+          </div>
+        )}
         <div className="modal-safety-promise">
           <ShieldCheck size={17} />
           <div>
@@ -1779,12 +1803,31 @@ function ConfirmationModal({
             <span>{t(language, 'ui.confirmPathCount')}</span>
             <strong>{preview.pathCount.toLocaleString(language)}</strong>
           </div>
+          <div>
+            <span>{t(language, 'ui.confirmOperationPathCount')}</span>
+            <strong>{operationPaths.length.toLocaleString(language)}</strong>
+          </div>
         </div>
-        <div className="preview-list">
-          {preview.pathSamples.map((sample) => (
-            <span key={sample}>{sample}</span>
-          ))}
-        </div>
+        {preview.trustReport && (
+          <div className="trust-grid">
+            <TrustEvidenceSection title={t(language, 'ui.trustEvidence')} items={preview.trustReport.evidence} language={language} />
+            <TrustEvidenceSection title={t(language, 'ui.trustGuarantees')} items={preview.trustReport.guarantees} language={language} />
+            <TrustEvidenceSection title={t(language, 'ui.trustExclusions')} items={preview.trustReport.exclusions} language={language} />
+            <section className="trust-section">
+              <h3>{t(language, 'ui.trustRecovery')}</h3>
+              <p>{localizeTrustRecovery(preview.trustReport, language)}</p>
+            </section>
+          </div>
+        )}
+        <details className="operation-paths" open>
+          <summary>{t(language, 'ui.operationPathList')}</summary>
+          <p>{t(language, 'ui.operationPathListHelp')}</p>
+          <div className="preview-list">
+            {operationPaths.map((sample) => (
+              <span key={sample}>{sample}</span>
+            ))}
+          </div>
+        </details>
         {preview.explanation && (
           <div className="modal-explanation">
             <div>
@@ -1803,6 +1846,10 @@ function ConfirmationModal({
         </div>
         <p className="modal-footnote">{localizePreviewWarning(preview, language)}</p>
         <div className="modal-actions">
+          <button className="secondary-button" onClick={onCopyReport} disabled={isCleaning}>
+            <Copy size={16} />
+            {t(language, 'ui.copyCodexReview')}
+          </button>
           <button className="secondary-button" onClick={onCancel} disabled={isCleaning}>
             {t(language, 'ui.cancel')}
           </button>
@@ -1813,6 +1860,33 @@ function ConfirmationModal({
         </div>
       </section>
     </div>
+  )
+}
+
+function TrustEvidenceSection({
+  title,
+  items,
+  language
+}: {
+  title: string
+  items: TrustEvidenceItem[]
+  language: AppLanguage
+}): JSX.Element {
+  return (
+    <section className="trust-section">
+      <h3>{title}</h3>
+      <div className="trust-evidence-list">
+        {items.map((item) => (
+          <div className={`trust-evidence-item ${item.tone}`} key={`${item.labelKey ?? item.label}-${item.detailKey ?? item.detail}`}>
+            <CheckCircle2 size={15} />
+            <div>
+              <strong>{localizeTrustItemLabel(item, language)}</strong>
+              <span>{localizeTrustItemDetail(item, language)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -2136,6 +2210,64 @@ function localizePreviewImpact(preview: CleanupPreview, language: AppLanguage): 
 
 function localizePreviewWarning(preview: CleanupPreview, language: AppLanguage): string {
   return preview.warningKey ? t(language, preview.warningKey) : preview.warning
+}
+
+function localizeTrustSummary(report: NonNullable<CleanupPreview['trustReport']>, language: AppLanguage): string {
+  return report.summaryKey ? t(language, report.summaryKey, report.summaryParams) : report.summary
+}
+
+function localizeTrustRecovery(report: NonNullable<CleanupPreview['trustReport']>, language: AppLanguage): string {
+  return report.recoveryKey ? t(language, report.recoveryKey, report.recoveryParams) : report.recovery
+}
+
+function localizeTrustItemLabel(item: TrustEvidenceItem, language: AppLanguage): string {
+  return item.labelKey ? t(language, item.labelKey, item.labelParams) : item.label
+}
+
+function localizeTrustItemDetail(item: TrustEvidenceItem, language: AppLanguage): string {
+  return item.detailKey ? t(language, item.detailKey, item.detailParams) : item.detail
+}
+
+function buildCodexReviewReport(preview: CleanupPreview, language: AppLanguage): string {
+  const operationPaths = preview.operationPaths?.length ? preview.operationPaths : preview.pathSamples
+  const lines = [
+    language === 'zh-CN'
+      ? '请帮我复核 Mac Cleaner 的这次清理预览。'
+      : 'Please review this Mac Cleaner cleanup preview.',
+    '',
+    `${language === 'zh-CN' ? '项目' : 'Item'}: ${localizePreviewTitle(preview, language)}`,
+    `${language === 'zh-CN' ? '估算大小' : 'Estimated size'}: ${formatBytes(preview.totalBytes)}`,
+    `${language === 'zh-CN' ? '清理方式' : 'Cleanup method'}: ${language === 'zh-CN' ? '只移动到 macOS 废纸篓，不永久删除，不清空废纸篓。' : 'Move to macOS Trash only. No permanent deletion and no emptying Trash.'}`,
+    `${language === 'zh-CN' ? '影响说明' : 'Impact'}: ${localizePreviewImpact(preview, language)}`,
+    ''
+  ]
+
+  if (preview.trustReport) {
+    lines.push(`${language === 'zh-CN' ? '我的判断' : 'My judgment'}: ${localizeTrustSummary(preview.trustReport, language)}`)
+    lines.push('')
+    lines.push(language === 'zh-CN' ? '证据链:' : 'Evidence:')
+    for (const item of preview.trustReport.evidence) {
+      lines.push(`- ${localizeTrustItemLabel(item, language)}: ${localizeTrustItemDetail(item, language)}`)
+    }
+    lines.push('')
+    lines.push(language === 'zh-CN' ? '不会做的事:' : 'What it will not do:')
+    for (const item of [...preview.trustReport.guarantees, ...preview.trustReport.exclusions]) {
+      lines.push(`- ${localizeTrustItemLabel(item, language)}: ${localizeTrustItemDetail(item, language)}`)
+    }
+    lines.push('')
+    lines.push(`${language === 'zh-CN' ? '恢复方式' : 'Recovery'}: ${localizeTrustRecovery(preview.trustReport, language)}`)
+    lines.push('')
+  }
+
+  lines.push(language === 'zh-CN' ? '将移动到废纸篓的入口路径:' : 'Entry paths to move to Trash:')
+  for (const operationPath of operationPaths) {
+    lines.push(`- ${operationPath}`)
+  }
+  lines.push('')
+  lines.push(language === 'zh-CN'
+    ? '请判断这次清理是否合理，以及有没有我应该先保留的风险点。'
+    : 'Please tell me whether this cleanup is reasonable and whether anything should be kept first.')
+  return lines.join('\n')
 }
 
 function calculateCleanableStats(candidates: CleanupCandidate[]): {

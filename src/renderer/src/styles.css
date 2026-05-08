@@ -2082,6 +2082,39 @@ h1 {
   margin-top: 9px;
 }
 
+.trust-modal {
+  width: min(820px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.trust-decision {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--preview-bg);
+  border: 1px solid var(--preview-line);
+  border-radius: 8px;
+}
+
+.trust-decision span,
+.trust-section h3,
+.operation-paths summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.trust-decision strong {
+  font-size: 13px;
+  line-height: 19px;
+}
+
 .preview-list {
   display: grid;
   gap: 6px;
@@ -2114,7 +2147,7 @@ h1 {
 
 .confirmation-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
 }
@@ -2151,6 +2184,95 @@ h1 {
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trust-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.trust-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.trust-section p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.trust-evidence-list {
+  display: grid;
+  gap: 7px;
+}
+
+.trust-evidence-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  color: var(--accent-strong);
+}
+
+.trust-evidence-item.safe {
+  color: var(--safe);
+}
+
+.trust-evidence-item.confirm {
+  color: var(--confirm);
+}
+
+.trust-evidence-item.blocked {
+  color: var(--danger);
+}
+
+.trust-evidence-item strong,
+.trust-evidence-item span {
+  display: block;
+}
+
+.trust-evidence-item strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.trust-evidence-item span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.operation-paths {
+  margin-top: 14px;
+  padding: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.operation-paths summary {
+  cursor: pointer;
+}
+
+.operation-paths p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.operation-paths .preview-list {
+  max-height: 180px;
+  overflow: auto;
 }
 
 .modal-explanation {

@@ -80,11 +80,11 @@ npm run install:local:zh -- --install-dir "$HOME/Tools"
 
 每个清理项都会标记为：
 
-- `安全可清理`：低风险缓存、日志或诊断数据
-- `需确认`：用户可能还会用到的下载内容或生成数据
+- `我建议清理`：低风险缓存、日志或诊断数据，但执行前仍会展示证据链和完整入口路径
+- `先看说明`：用户可能还会用到的下载内容或生成数据，需要先理解影响
 - `不建议清理`：受阻、无权限、不支持或风险不清楚的数据
 
-同类小文件会默认聚合，避免扫描结果里出现一大堆体积很小、很难逐个判断的文件。大体积安全缓存、开发缓存和旧安装包会保持优先展示；照片、邮件、消息、项目目录、Docker 镜像、Xcode Archives、应用本体和普通大文件只会出现在空间地图中。
+同类小文件会默认聚合，避免扫描结果里出现一大堆体积很小、很难逐个判断的文件。大体积缓存、开发缓存和旧安装包会保持优先展示；照片、邮件、消息、项目目录、Docker 镜像、Xcode Archives、应用本体和普通大文件只会出现在空间地图中。
 
 ## 语言
 
@@ -176,7 +176,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.10.0` 新增“高价值发现”视图：扫描后先把 Git 临时垃圾、Xcode/Simulator 缓存、Homebrew 临时文件、Codex 历史、Claude VM 和大型 App 这类真正值得处理的大项排出来，并用人话说明“这是什么、为什么大、能不能删、建议怎么处理”。安全边界不变：扫描默认只读，普通大文件和重要目录只定位不一键清理，真正清理仍只发生在固定安全 catalog、点击按钮、二次确认之后。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.11.0` 新增 Trust Mode：清理按钮不再只是弹出一句确认，而是展示“我的判断、证据链、将移动的完整入口路径、明确不会碰的范围、恢复方式”，并提供“复制给 Codex 复核”按钮。安全边界不变：扫描默认只读，普通大文件和重要目录只定位不一键清理，真正清理仍只发生在固定安全 catalog、点击按钮、信任确认之后，并且只移动到废纸篓。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

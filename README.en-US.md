@@ -80,11 +80,11 @@ Safe Cleanup candidates come from fixed safe locations and rules:
 
 Each cleanup item is labelled as:
 
-- `Safe to Clean`: low-risk cache, log, or diagnostic data
-- `Review First`: user-visible or potentially useful generated/downloaded data
+- `Recommended Cleanup`: low-risk cache, log, or diagnostic data, with evidence and exact entry paths still shown before execution
+- `Review First`: user-visible or potentially useful generated/downloaded data; read the impact first
 - `Not Recommended`: blocked, inaccessible, unsupported, or unclear-risk data
 
-Small same-kind items are grouped by default so the app does not flood you with dozens of tiny files. Large safe caches, developer caches, and old installers stay prioritized; photos, mail, messages, project folders, Docker images, Xcode Archives, app bundles, and ordinary large files only appear in the storage map.
+Small same-kind items are grouped by default so the app does not flood you with dozens of tiny files. Large caches, developer caches, and old installers stay prioritized; photos, mail, messages, project folders, Docker images, Xcode Archives, app bundles, and ordinary large files only appear in the storage map.
 
 ## Language
 
@@ -176,7 +176,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.10.0` adds the Top Finds view: after a scan, Mac Cleaner puts high-value items such as Git temporary garbage, Xcode/Simulator caches, Homebrew temp files, Codex history, Claude VM bundles, and large apps ahead of the rest, then explains what they are, why they are large, whether they can be removed, and what to do next. The safety boundary is unchanged: scans are read-only by default, ordinary large files and important directories are locate-only, and actual cleanup still requires the fixed safe catalog, a user click, and a second confirmation. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.11.0` adds Trust Mode: cleanup buttons no longer lead to a short generic confirmation. They open a trust check with the app's judgment, evidence chain, complete entry paths that will move, explicit out-of-scope areas, recovery guidance, and a “Copy for Codex review” button. The safety boundary is unchanged: scans are read-only by default, ordinary large files and important directories are locate-only, and actual cleanup still requires the fixed safe catalog, a user click, and the trust confirmation before moving anything to Trash. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

@@ -93,6 +93,11 @@ describe('MacCleanerApp', () => {
 
   it('shows scan results and requires confirmation before cleanup', async () => {
     const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
     const firstCandidate = demoSummary.candidates[0]
     const preview: CleanupPreview = {
       candidateIds: [firstCandidate.id],
@@ -103,6 +108,21 @@ describe('MacCleanerApp', () => {
       totalBytes: firstCandidate.sizeBytes,
       pathCount: 1,
       pathSamples: [firstCandidate.pathPreview],
+      operationPaths: [firstCandidate.pathPreview],
+      trustReport: {
+        summary: '我的判断：这 1 个项目命中固定安全清理规则。',
+        evidence: [
+          { label: '来自本次扫描', detail: '只接受扫描生成的候选 ID。', tone: 'safe' },
+          { label: '路径快照已绑定', detail: '路径变化会拒绝执行。', tone: 'safe' }
+        ],
+        guarantees: [
+          { label: '只移到废纸篓', detail: '不会永久删除。', tone: 'safe' }
+        ],
+        exclusions: [
+          { label: '不会碰清单外路径', detail: '不会处理其它路径。', tone: 'blocked' }
+        ],
+        recovery: '清倒废纸篓前可以恢复。'
+      },
       impact: firstCandidate.impact,
       explanation: firstCandidate.explanation,
       warning: '确认后会将这些项目移到废纸篓，不会永久删除。',
@@ -164,8 +184,8 @@ describe('MacCleanerApp', () => {
     expect(screen.getAllByText(/先别删整个仓库/)).not.toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: /安心清理/ }))
-    expect(await screen.findAllByText('可以放心清理')).not.toHaveLength(0)
-    expect(screen.getAllByText('先确认一下')).not.toHaveLength(0)
+    expect(await screen.findAllByText('我建议清理')).not.toHaveLength(0)
+    expect(screen.getAllByText('先看说明')).not.toHaveLength(0)
     expect(screen.getByText('安全清理控制台')).toBeInTheDocument()
     expect(screen.getByText('我的建议')).toBeInTheDocument()
     expect(screen.getByText('能不能删')).toBeInTheDocument()
@@ -178,13 +198,20 @@ describe('MacCleanerApp', () => {
 
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
-    expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /清理前信任确认/ })).toBeInTheDocument()
     expect(screen.getByText('只移动到废纸篓')).toBeInTheDocument()
+    expect(screen.getByText('为什么我认为可以这样处理')).toBeInTheDocument()
+    expect(screen.getByText('本次将移动的完整入口路径')).toBeInTheDocument()
+    expect(screen.getByText('不会碰清单外路径')).toBeInTheDocument()
     expect(screen.getAllByText('什么情况先保留').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('路径数量').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('扫描内项目数').length).toBeGreaterThan(0)
     expect(api.moveToTrash).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: /确认移到废纸篓/ }))
+    await user.click(screen.getByRole('button', { name: /复制给 Codex 复核/ }))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(firstCandidate.pathPreview))
+    expect(await screen.findByText(/已复制复核报告/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /我已看懂，移到废纸篓/ }))
 
     await waitFor(() => {
       expect(api.moveToTrash).toHaveBeenCalledWith([firstCandidate.id], 'confirm-1', 'zh-CN')
@@ -261,7 +288,7 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getByRole('button', { name: /批量确认/ }))
 
     expect(api.cleanupPreview).toHaveBeenCalledWith(expect.arrayContaining(candidates.map((candidate) => candidate.id)), 'zh-CN')
-    expect(await screen.findByRole('dialog', { name: /再次确认移到废纸篓/ })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /清理前信任确认/ })).toBeInTheDocument()
   })
 
   it('surfaces Finder reveal failures instead of doing a silent no-op', async () => {
@@ -484,15 +511,15 @@ describe('MacCleanerApp', () => {
     expect(localStorage.getItem('mac-cleaner-language')).toBe('en-US')
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
-    expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
+    expect(screen.getAllByText('Recommended Cleanup')).not.toHaveLength(0)
     expect(screen.getAllByText('Review First')).not.toHaveLength(0)
     expect(screen.getByText('My recommendation')).toBeInTheDocument()
     expect(screen.getByText('Can it be removed?')).toBeInTheDocument()
     expect(screen.getAllByText(/Regeneratable|Developer cache/).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: `Move to Trash: ${firstCandidate.title}` }))
 
-    expect(await screen.findByRole('dialog', { name: /Confirm Move to Trash/ })).toBeInTheDocument()
-    expect(screen.getByText(/After confirmation these items will be moved to Trash/)).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /Trust Check Before Cleanup/ })).toBeInTheDocument()
+    expect(screen.getByText(/Trash only/)).toBeInTheDocument()
   })
 
   it('uses the installer-provided initial language before legacy localStorage', async () => {
@@ -505,7 +532,7 @@ describe('MacCleanerApp', () => {
     expect(await screen.findByText('Up to date')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
-    expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
+    expect(screen.getAllByText('Recommended Cleanup')).not.toHaveLength(0)
   })
 
   it('shows theme choices and defaults to Aurora Light', async () => {

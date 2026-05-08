@@ -12,8 +12,8 @@ The language-specific install commands set the default interface language on thi
 ## Quick Safety Notes
 
 - Builds a user-space storage map while keeping cleanup actions limited to curated safe candidates.
-- Explains what each cleanup candidate is before cleanup.
-- Moves confirmed items to macOS Trash only after a second confirmation.
+- Explains what each cleanup candidate is and shows evidence, exact entry paths, and recovery guidance before cleanup.
+- Moves confirmed items to macOS Trash only after a trust confirmation.
 - Keeps language, theme, and install-location preferences local in `~/Library/Application Support/Mac Cleaner/settings.json`.
 
 ## License

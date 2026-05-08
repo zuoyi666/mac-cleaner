@@ -84,6 +84,30 @@ export interface HumanExplanation {
   nextStepParams?: I18nParams
 }
 
+export type TrustEvidenceTone = 'safe' | 'confirm' | 'blocked' | 'info'
+
+export interface TrustEvidenceItem {
+  label: string
+  labelKey?: string
+  labelParams?: I18nParams
+  detail: string
+  detailKey?: string
+  detailParams?: I18nParams
+  tone: TrustEvidenceTone
+}
+
+export interface CleanupTrustReport {
+  summary: string
+  summaryKey?: string
+  summaryParams?: I18nParams
+  evidence: TrustEvidenceItem[]
+  guarantees: TrustEvidenceItem[]
+  exclusions: TrustEvidenceItem[]
+  recovery: string
+  recoveryKey?: string
+  recoveryParams?: I18nParams
+}
+
 export interface CleanupCandidate {
   id: string
   scanId: string
@@ -259,6 +283,8 @@ export interface RecommendationActionPreview {
   totalBytes: number
   pathCount: number
   pathSamples: string[]
+  operationPaths?: string[]
+  trustReport?: CleanupTrustReport
   actionLabel: string
   actionLabelKey?: string
   actionLabelParams?: I18nParams
@@ -307,6 +333,8 @@ export interface CleanupPreview {
   totalBytes: number
   pathCount: number
   pathSamples: string[]
+  operationPaths?: string[]
+  trustReport?: CleanupTrustReport
   impact: string
   impactKey?: string
   explanation?: HumanExplanation
