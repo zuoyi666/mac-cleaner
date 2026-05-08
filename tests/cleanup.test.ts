@@ -23,6 +23,12 @@ describe('createCleanupManager', () => {
     await expect(manager.moveToTrash([candidate.id], 'wrong-confirmation')).rejects.toThrow('确认')
 
     const preview = manager.cleanupPreview([candidate.id])
+    expect(preview.operationPaths).toEqual([candidate.paths[0]])
+    expect(preview.trustReport?.summary).toContain('固定安全清理规则')
+    expect(preview.trustReport?.evidence.map((item) => item.label)).toContain('路径快照已绑定')
+    expect(preview.trustReport?.guarantees.map((item) => item.label)).toContain('只移到废纸篓')
+    expect(preview.trustReport?.exclusions.map((item) => item.label)).toContain('不会碰清单外路径')
+
     const result = await manager.moveToTrash([candidate.id], preview.confirmationId)
 
     expect(result.successCount).toBe(1)

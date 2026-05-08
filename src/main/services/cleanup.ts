@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
-import type { AppLanguage, CleanupPreview, CleanupResult, HumanExplanation } from '../../shared/types'
+import os from 'node:os'
+import type { AppLanguage, CleanupPreview, CleanupResult, CleanupTrustReport, HumanExplanation, TrustEvidenceItem } from '../../shared/types'
 import { t } from '../../shared/i18n'
 import type { InternalCandidate } from './scanner'
 import { isWithinPath } from './pathSafety'
@@ -42,6 +43,7 @@ export function createCleanupManager(
       confirmations.set(confirmationId, { candidateIds, scanId, pathSnapshotHash, expiresAt })
       const totalBytes = candidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
       const pathSamples = candidates.flatMap((candidate) => candidate.pathSamples).slice(0, 8)
+      const operationPaths = uniqueStrings(candidates.flatMap((candidate) => candidate.pathSnapshots.map((snapshot) => compactPreviewPath(snapshot.path))))
 
       return {
         candidateIds,
@@ -54,6 +56,8 @@ export function createCleanupManager(
         totalBytes,
         pathCount: candidates.reduce((sum, candidate) => sum + candidate.pathCount, 0),
         pathSamples,
+        operationPaths,
+        trustReport: buildTrustReport(candidates, operationPaths, totalBytes, language),
         impact: candidates.length === 1 ? localizedCandidateImpact(candidates[0], language) : summarizeBatchImpact(candidates, language),
         impactKey: candidates.length === 1 ? candidates[0].impactKey : batchImpactKey(candidates),
         explanation: candidates.length === 1 ? candidates[0].explanation : batchExplanation(candidates, language),
@@ -227,6 +231,67 @@ function localizedCandidateTitle(candidate: InternalCandidate, language: AppLang
   return candidate.titleKey ? t(language, candidate.titleKey, candidate.titleParams) : candidate.title
 }
 
+function buildTrustReport(
+  candidates: InternalCandidate[],
+  operationPaths: string[],
+  totalBytes: number,
+  language: AppLanguage
+): CleanupTrustReport {
+  const hasReviewItems = candidates.some((candidate) => candidate.safety === 'confirm')
+  const allowlistRoots = uniqueStrings(candidates.map((candidate) => compactPreviewPath(candidate.allowedRoot))).join(', ')
+  const categoryNames = uniqueStrings(candidates.map((candidate) => candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName)).join(', ')
+  const params = {
+    count: candidates.length,
+    paths: operationPaths.length,
+    bytes: formatBytesForMessage(totalBytes),
+    roots: allowlistRoots,
+    categories: categoryNames
+  }
+
+  return {
+    summary: t(language, hasReviewItems ? 'trust.summary.review' : 'trust.summary.recommended', params),
+    summaryKey: hasReviewItems ? 'trust.summary.review' : 'trust.summary.recommended',
+    summaryParams: params,
+    evidence: [
+      evidenceItem(language, 'trust.evidence.scan.label', 'trust.evidence.scan.detail', 'safe', params),
+      evidenceItem(language, 'trust.evidence.allowlist.label', 'trust.evidence.allowlist.detail', 'safe', params),
+      evidenceItem(language, 'trust.evidence.snapshot.label', 'trust.evidence.snapshot.detail', 'safe', params),
+      evidenceItem(language, 'trust.evidence.symlink.label', 'trust.evidence.symlink.detail', 'safe', params)
+    ],
+    guarantees: [
+      evidenceItem(language, 'trust.guarantee.trash.label', 'trust.guarantee.trash.detail', 'safe', params),
+      evidenceItem(language, 'trust.guarantee.noAdmin.label', 'trust.guarantee.noAdmin.detail', 'safe', params),
+      evidenceItem(language, 'trust.guarantee.noArbitrary.label', 'trust.guarantee.noArbitrary.detail', 'safe', params)
+    ],
+    exclusions: [
+      evidenceItem(language, 'trust.exclusion.outsideList.label', 'trust.exclusion.outsideList.detail', 'blocked', params),
+      evidenceItem(language, 'trust.exclusion.system.label', 'trust.exclusion.system.detail', 'blocked', params),
+      evidenceItem(language, 'trust.exclusion.trashEmpty.label', 'trust.exclusion.trashEmpty.detail', 'blocked', params)
+    ],
+    recovery: t(language, 'trust.recovery.trash', params),
+    recoveryKey: 'trust.recovery.trash',
+    recoveryParams: params
+  }
+}
+
+function evidenceItem(
+  language: AppLanguage,
+  labelKey: string,
+  detailKey: string,
+  tone: TrustEvidenceItem['tone'],
+  params: Record<string, string | number>
+): TrustEvidenceItem {
+  return {
+    label: t(language, labelKey, params),
+    labelKey,
+    labelParams: params,
+    detail: t(language, detailKey, params),
+    detailKey,
+    detailParams: params,
+    tone
+  }
+}
+
 function batchImpactKey(candidates: InternalCandidate[]): string {
   const safetyLabels = new Set(candidates.map((candidate) => candidate.safety))
   if (safetyLabels.has('confirm')) {
@@ -267,6 +332,17 @@ function batchExplanation(candidates: InternalCandidate[], language: AppLanguage
     nextStepKey: `${baseKey}.nextStep`,
     nextStepParams: params
   }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function compactPreviewPath(targetPath: string): string {
+  const homeDir = os.homedir()
+  if (targetPath === homeDir) return '~'
+  if (targetPath.startsWith(`${homeDir}/`)) return `~/${targetPath.slice(homeDir.length + 1)}`
+  return targetPath
 }
 
 function formatBytesForMessage(bytes: number): string {
