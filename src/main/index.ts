@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let mainWindow: BrowserWindow | null = null
 let currentScanRun: ScanRun | null = null
 let activeScanAbortController: AbortController | null = null
+const recommendationConfirmations = new Map<string, { recommendationId: string; scanId: string; expiresAt: number }>()
 
 const cleanupManager = createCleanupManager(
   {
@@ -154,6 +156,96 @@ function registerIpcHandlers(): void {
     return cleanupManager.moveToTrash(validateCandidateIds(candidateIds, language), validateString(confirmationId, 'confirmationId', language), language)
   })
 
+  ipcMain.handle('mac-cleaner:recommendation-preview', (_event, recommendationIdInput: unknown, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    const recommendation = getRecommendation(validateString(recommendationIdInput, 'recommendationId', language), language)
+    if (recommendation.recommendedAction === 'move-to-trash' && recommendation.candidateIds?.length) {
+      const cleanupPreview = cleanupManager.cleanupPreview(recommendation.candidateIds, language)
+      return {
+        recommendationId: recommendation.id,
+        confirmationId: cleanupPreview.confirmationId,
+        scanId: cleanupPreview.scanId,
+        title: recommendation.title,
+        titleKey: recommendation.titleKey,
+        titleParams: recommendation.titleParams,
+        action: recommendation.recommendedAction,
+        canExecute: true,
+        totalBytes: cleanupPreview.totalBytes,
+        pathCount: cleanupPreview.pathCount,
+        pathSamples: cleanupPreview.pathSamples,
+        actionLabel: recommendation.actionLabel,
+        actionLabelKey: recommendation.actionLabelKey,
+        actionLabelParams: recommendation.actionLabelParams,
+        explanation: recommendation.explanation,
+        warning: cleanupPreview.warning,
+        warningKey: cleanupPreview.warningKey,
+        expiresAt: cleanupPreview.expiresAt
+      }
+    }
+
+    const confirmationId = crypto.randomUUID()
+    recommendationConfirmations.set(confirmationId, {
+      recommendationId: recommendation.id,
+      scanId: recommendation.scanId,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    })
+    return {
+      recommendationId: recommendation.id,
+      confirmationId,
+      scanId: recommendation.scanId,
+      title: recommendation.title,
+      titleKey: recommendation.titleKey,
+      titleParams: recommendation.titleParams,
+      action: recommendation.recommendedAction,
+      canExecute: recommendation.canExecute,
+      totalBytes: recommendation.sizeBytes,
+      pathCount: recommendation.pathCount,
+      pathSamples: recommendation.pathSamples,
+      actionLabel: recommendation.actionLabel,
+      actionLabelKey: recommendation.actionLabelKey,
+      actionLabelParams: recommendation.actionLabelParams,
+      explanation: recommendation.explanation,
+      warning: t(language, recommendation.canExecute ? 'recommendation.preview.executeWarning' : 'recommendation.preview.readOnlyWarning'),
+      warningKey: recommendation.canExecute ? 'recommendation.preview.executeWarning' : 'recommendation.preview.readOnlyWarning',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+    }
+  })
+
+  ipcMain.handle('mac-cleaner:recommendation-run', async (_event, recommendationIdInput: unknown, confirmationIdInput: unknown, languageInput: unknown) => {
+    const language = validateLanguage(languageInput)
+    const recommendation = getRecommendation(validateString(recommendationIdInput, 'recommendationId', language), language)
+    const confirmationId = validateString(confirmationIdInput, 'confirmationId', language)
+
+    if (recommendation.recommendedAction === 'move-to-trash' && recommendation.candidateIds?.length) {
+      const cleanupResult = await cleanupManager.moveToTrash(recommendation.candidateIds, confirmationId, language)
+      return {
+        recommendationId: recommendation.id,
+        action: recommendation.recommendedAction,
+        executed: cleanupResult.successCount > 0,
+        message: t(language, 'recommendation.result.cleaned'),
+        messageKey: 'recommendation.result.cleaned',
+        cleanupResult
+      }
+    }
+
+    const confirmation = recommendationConfirmations.get(confirmationId)
+    if (!confirmation || confirmation.recommendationId !== recommendation.id || confirmation.scanId !== recommendation.scanId || confirmation.expiresAt < Date.now()) {
+      throw new Error(t(language, 'recommendation.error.confirmExpired'))
+    }
+    recommendationConfirmations.delete(confirmationId)
+
+    const targetPath = recommendation.pathToken ? currentScanRun?.pathTokens.get(recommendation.pathToken) : undefined
+    const revealResult = targetPath ? await revealPath(targetPath) : undefined
+    return {
+      recommendationId: recommendation.id,
+      action: recommendation.recommendedAction,
+      executed: false,
+      message: t(language, 'recommendation.result.readOnly'),
+      messageKey: 'recommendation.result.readOnly',
+      revealResult
+    }
+  })
+
   ipcMain.handle('mac-cleaner:reveal-path', async (_event, pathTokenInput: unknown) => {
     const pathToken = validateString(pathTokenInput, 'pathToken')
     const targetPath = currentScanRun?.pathTokens.get(pathToken)
@@ -227,6 +319,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mac-cleaner:set-theme-preference', async (_event, themePreferenceInput: unknown) => {
     return writeThemePreference(validateThemePreference(themePreferenceInput))
   })
+}
+
+function getRecommendation(recommendationId: string, language: AppLanguage) {
+  const recommendation = currentScanRun?.recommendations.get(recommendationId)
+  if (!recommendation) {
+    throw new Error(t(language, 'recommendation.error.notFound'))
+  }
+  return recommendation
 }
 
 function emitLocalUpdateProgress(sender: WebContents, progress: LocalUpdateProgress): void {

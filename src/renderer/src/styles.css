@@ -1609,6 +1609,10 @@ h1 {
   grid-template-columns: 30px minmax(0, 1fr);
 }
 
+.insight-title-line {
+  grid-template-columns: 30px minmax(0, 1fr);
+}
+
 .candidate-title strong,
 .candidate-title small,
 .impact-cell {

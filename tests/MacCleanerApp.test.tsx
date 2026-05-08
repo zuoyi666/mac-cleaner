@@ -19,8 +19,8 @@ import type {
 const currentUpdateStatus: LocalUpdateStatus = {
   state: 'current',
   updateAvailable: false,
-  currentVersion: '0.9.2',
-  latestVersion: '0.9.2',
+  currentVersion: '0.10.0',
+  latestVersion: '0.10.0',
   repoPath: '/Users/yizuo/Mac-Clearner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
@@ -48,6 +48,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     cancelScan: vi.fn().mockResolvedValue(undefined),
     cleanupPreview: vi.fn(),
     moveToTrash: vi.fn(),
+    previewRecommendationAction: vi.fn(),
+    runRecommendationAction: vi.fn(),
     revealPath: vi.fn().mockResolvedValue(revealOk),
     openFullDiskAccessSettings: vi.fn().mockResolvedValue({
       ok: true,
@@ -59,8 +61,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
     runLocalSourceUpdate: vi.fn().mockResolvedValue({
       updated: false,
-      previousVersion: '0.9.2',
-      currentVersion: '0.9.2',
+      previousVersion: '0.10.0',
+      currentVersion: '0.10.0',
       installedPath: currentUpdateStatus.installTarget,
       needsRelaunch: false,
       message: '当前已经是最新版本。',
@@ -122,6 +124,8 @@ describe('MacCleanerApp', () => {
         movedToTrash: true,
         needsRescan: true
       }),
+      previewRecommendationAction: vi.fn(),
+      runRecommendationAction: vi.fn(),
       revealPath: vi.fn().mockResolvedValue(revealOk),
       openFullDiskAccessSettings: vi.fn().mockResolvedValue({
         ok: true,
@@ -133,8 +137,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.9.2',
-        currentVersion: '0.9.2',
+        previousVersion: '0.10.0',
+        currentVersion: '0.10.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -155,6 +159,11 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={api} initialSummary={null} />)
 
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
+    expect(await screen.findAllByText('高价值发现')).not.toHaveLength(0)
+    expect(screen.getAllByText(/Git 临时垃圾/)).not.toHaveLength(0)
+    expect(screen.getAllByText(/先别删整个仓库/)).not.toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     expect(await screen.findAllByText('可以放心清理')).not.toHaveLength(0)
     expect(screen.getAllByText('先确认一下')).not.toHaveLength(0)
     expect(screen.getByText('安全清理控制台')).toBeInTheDocument()
@@ -213,6 +222,8 @@ describe('MacCleanerApp', () => {
         movedToTrash: true,
         needsRescan: true
       }),
+      previewRecommendationAction: vi.fn(),
+      runRecommendationAction: vi.fn(),
       revealPath: vi.fn().mockResolvedValue(revealOk),
       openFullDiskAccessSettings: vi.fn().mockResolvedValue({
         ok: true,
@@ -224,8 +235,8 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(currentUpdateStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: false,
-        previousVersion: '0.9.2',
-        currentVersion: '0.9.2',
+        previousVersion: '0.10.0',
+        currentVersion: '0.10.0',
         installedPath: currentUpdateStatus.installTarget,
         needsRelaunch: false,
         message: '当前已经是最新版本。',
@@ -245,6 +256,7 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
+    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     await user.click(screen.getByRole('button', { name: /选择可清理项/ }))
     await user.click(screen.getByRole('button', { name: /批量确认/ }))
 
@@ -267,6 +279,7 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
+    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
 
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
@@ -274,6 +287,7 @@ describe('MacCleanerApp', () => {
   })
 
   it('marks permission-blocked items as not recommended without requesting access', async () => {
+    const user = userEvent.setup()
     const blockedCandidate: CleanupCandidate = {
       ...demoSummary.candidates[0],
       id: 'blocked-private-cache',
@@ -346,6 +360,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={blockedSummary} />)
     await screen.findByText('已是最新')
 
+    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     expect(screen.getAllByText('不要一键删')).not.toHaveLength(0)
     expect(screen.getByText('权限与安全边界')).toBeInTheDocument()
     expect(screen.getByText(/不会申请管理员权限/)).toBeInTheDocument()
@@ -468,12 +483,12 @@ describe('MacCleanerApp', () => {
     })
     expect(localStorage.getItem('mac-cleaner-language')).toBe('en-US')
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
     expect(screen.getAllByText('Review First')).not.toHaveLength(0)
     expect(screen.getByText('My recommendation')).toBeInTheDocument()
     expect(screen.getByText('Can it be removed?')).toBeInTheDocument()
     expect(screen.getAllByText(/Regeneratable|Developer cache/).length).toBeGreaterThan(0)
-
     await user.click(screen.getByRole('button', { name: `Move to Trash: ${firstCandidate.title}` }))
 
     expect(await screen.findByRole('dialog', { name: /Confirm Move to Trash/ })).toBeInTheDocument()
@@ -481,6 +496,7 @@ describe('MacCleanerApp', () => {
   })
 
   it('uses the installer-provided initial language before legacy localStorage', async () => {
+    const user = userEvent.setup()
     window.history.replaceState(null, '', '/?initialLanguage=en-US')
     localStorage.setItem('mac-cleaner-language', 'zh-CN')
 
@@ -488,6 +504,7 @@ describe('MacCleanerApp', () => {
 
     expect(await screen.findByText('Up to date')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
     expect(screen.getAllByText('Safe to Clean')).not.toHaveLength(0)
   })
 
@@ -512,6 +529,7 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
+    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     await user.click(screen.getByRole('radio', { name: '黑客终端' }))
 
     await waitFor(() => {
@@ -563,10 +581,12 @@ describe('MacCleanerApp', () => {
   })
 
   it('only shows demo candidates when preview mode is explicit', async () => {
+    const user = userEvent.setup()
     window.history.replaceState(null, '', '/?demo=1')
 
     render(<MacCleanerApp />)
 
+    await user.click(await screen.findByRole('button', { name: /安心清理/ }))
     expect(await screen.findByText('DesignTool-4.2.1.dmg')).toBeInTheDocument()
     expect(screen.getByText(/浏览器预览模式/)).toBeInTheDocument()
   })
@@ -577,7 +597,7 @@ describe('MacCleanerApp', () => {
       ...currentUpdateStatus,
       state: 'available',
       updateAvailable: true,
-      latestVersion: '0.9.3',
+      latestVersion: '0.10.1',
       remoteCommit: 'remote',
       message: 'GitHub 上有新提交可同步。',
       messageKey: 'localUpdate.status.available'
@@ -587,6 +607,8 @@ describe('MacCleanerApp', () => {
       cancelScan: vi.fn().mockResolvedValue(undefined),
       cleanupPreview: vi.fn(),
       moveToTrash: vi.fn(),
+      previewRecommendationAction: vi.fn(),
+      runRecommendationAction: vi.fn(),
       revealPath: vi.fn().mockResolvedValue(revealOk),
       openFullDiskAccessSettings: vi.fn().mockResolvedValue({
         ok: true,
@@ -598,13 +620,13 @@ describe('MacCleanerApp', () => {
       checkForLocalUpdate: vi.fn().mockResolvedValue(availableStatus),
       runLocalSourceUpdate: vi.fn().mockResolvedValue({
         updated: true,
-        previousVersion: '0.9.2',
-        currentVersion: '0.9.3',
+        previousVersion: '0.10.0',
+        currentVersion: '0.10.1',
         installedPath: availableStatus.installTarget,
         needsRelaunch: true,
-        message: '已同步到 0.9.3，即将重启。',
+        message: '已同步到 0.10.1，即将重启。',
         messageKey: 'localUpdate.result.updated',
-        messageParams: { currentVersion: '0.9.3' }
+        messageParams: { currentVersion: '0.10.1' }
       }),
       configureLocalUpdate: vi.fn().mockResolvedValue({
         repoPath: availableStatus.repoPath,

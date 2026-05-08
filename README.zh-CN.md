@@ -51,6 +51,7 @@ npm run install:local:zh -- --install-dir "$HOME/Tools"
 
 当前版本把扫描结果拆成两层：
 
+- `高价值发现`：优先列出真正值得先看的大项，例如 Git 临时垃圾、Xcode/Simulator 缓存、Homebrew 临时文件、Codex 历史、Claude VM 和大型 App。
 - `安心清理`：只展示明确安全或需确认的候选项，才有清理按钮。
 - `空间地图`：展示启动磁盘用户态目录中的大体积目录和文件，只解释和定位，不提供自动清理。
 
@@ -175,7 +176,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.9.2` 继续修复扫描状态问题详情：展开黄色跳过原因后，详情内容被限制在右侧卡片内部的固定滚动视窗中，鼠标滚轮或触控板可以在该区域内上下查看全部跳过原因和示例路径。`v0.9.x` 继续保留“说人话”解释体验，清理按钮仍只出现在固定安全 catalog 中，不新增自动删除能力。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.10.0` 新增“高价值发现”视图：扫描后先把 Git 临时垃圾、Xcode/Simulator 缓存、Homebrew 临时文件、Codex 历史、Claude VM 和大型 App 这类真正值得处理的大项排出来，并用人话说明“这是什么、为什么大、能不能删、建议怎么处理”。安全边界不变：扫描默认只读，普通大文件和重要目录只定位不一键清理，真正清理仍只发生在固定安全 catalog、点击按钮、二次确认之后。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 

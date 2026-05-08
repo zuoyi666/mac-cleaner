@@ -51,6 +51,7 @@ You can still switch to Chinese from the Local Settings card inside the app. Thi
 
 Current scan results are split into two layers:
 
+- `Top Finds`: prioritizes large, high-value items such as Git temporary garbage, Xcode/Simulator caches, Homebrew temp files, Codex history, Claude VM bundles, and large apps.
 - `Safe Cleanup`: only explicit safe or review-required candidates get cleanup buttons.
 - `Storage Map`: large user-space directories and files are explained and locatable, but never automatically cleaned.
 
@@ -175,7 +176,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.9.2` further fixes the scan status details experience: after expanding the yellow skipped-issue summary, details are constrained inside a fixed scroll viewport in the right-side card, so mouse wheel and trackpad scrolling can reveal every skipped reason and sample path. The `v0.9.x` line still keeps the plain-language explanation experience, and cleanup buttons only appear for the fixed safe catalog; no new automatic deletion behavior is added. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.10.0` adds the Top Finds view: after a scan, Mac Cleaner puts high-value items such as Git temporary garbage, Xcode/Simulator caches, Homebrew temp files, Codex history, Claude VM bundles, and large apps ahead of the rest, then explains what they are, why they are large, whether they can be removed, and what to do next. The safety boundary is unchanged: scans are read-only by default, ordinary large files and important directories are locate-only, and actual cleanup still requires the fixed safe catalog, a user click, and a second confirmation. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 

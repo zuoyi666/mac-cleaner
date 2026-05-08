@@ -198,6 +198,27 @@ describe('scanStorage', () => {
     expect(candidate?.kind).toBe('developer-cache')
     expect(candidate?.reasonKey).toBe('candidate.developer-cache.reason')
   })
+
+  it('adds high-value read-only recommendations for Git, Xcode, and Codex data', async () => {
+    const homeDir = await makeHome()
+    await writeSparseFile(path.join(homeDir, 'worldquant-alpha', '.git', 'objects', 'pack', 'tmp_pack_demo'), 300 * 1024 * 1024)
+    await writeSparseFile(path.join(homeDir, 'Library', 'Developer', 'XCTestDevices', 'device.bin'), 140 * 1024 * 1024)
+    await writeSparseFile(path.join(homeDir, '.codex', 'sessions', 'old-session.jsonl'), 160 * 1024 * 1024)
+
+    const run = await scanStorage({ homeDir, now: fixedNow, mode: 'comprehensive' })
+    const git = run.summary.recommendations.find((item) => item.kind === 'git-garbage')
+    const xcode = run.summary.recommendations.find((item) => item.kind === 'xcode-simulator-cache')
+    const codex = run.summary.recommendations.find((item) => item.kind === 'codex-history')
+
+    expect(git?.pathPreview).toBe('~/worldquant-alpha/.git/objects')
+    expect(git?.recommendedAction).toBe('run-safe-tool')
+    expect(git?.canExecute).toBe(false)
+    expect(git?.explanation.cleanability).toContain('不要用清理工具直接删整个 .git')
+    expect(xcode?.recommendationKey).toBe('recommendation.xctestDevices.recommendation')
+    expect(codex?.explanation.afterAction).toContain('旧对话')
+    expect(run.summary.recommendations[0]?.priorityScore).toBeGreaterThanOrEqual(run.summary.recommendations[1]?.priorityScore ?? 0)
+    expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('.git'))).toBe(false)
+  })
 })
 
 async function makeHome(): Promise<string> {
@@ -217,6 +238,13 @@ async function makeHome(): Promise<string> {
 async function writeSizedFile(filePath: string, size: number, modifiedAt = fixedNow): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   await fs.writeFile(filePath, Buffer.alloc(size, 1))
+  await fs.utimes(filePath, modifiedAt, modifiedAt)
+}
+
+async function writeSparseFile(filePath: string, size: number, modifiedAt = fixedNow): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  await fs.writeFile(filePath, '')
+  await fs.truncate(filePath, size)
   await fs.utimes(filePath, modifiedAt, modifiedAt)
 }
 

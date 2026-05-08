@@ -42,6 +42,8 @@ import type {
   ScanSummary,
   StorageInsight,
   StorageInsightRisk,
+  StorageRecommendation,
+  StorageRecommendationRisk,
   AppTheme,
   ThemePreference
 } from '../../shared/types'
@@ -103,6 +105,12 @@ const insightRiskClass: Record<StorageInsightRisk, string> = {
   'not-recommended': 'discouraged'
 }
 
+const recommendationRiskClass: Record<StorageRecommendationRisk, string> = {
+  safe: 'safe',
+  confirm: 'confirm',
+  'manual-only': 'discouraged'
+}
+
 export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.Element {
   const isBrowserPreview = !api && !window.macCleaner && shouldUseDemoPreview()
   const nativeBridgeMissing = !api && !window.macCleaner && !isBrowserPreview
@@ -116,7 +124,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null)
-  const [resultView, setResultView] = useState<'cleanup' | 'map'>('cleanup')
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null)
+  const [resultView, setResultView] = useState<'recommendations' | 'cleanup' | 'map'>('recommendations')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readStoredThemePreference())
@@ -198,6 +207,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   const categories = summary?.categories ?? []
   const candidates = summary?.candidates ?? []
+  const recommendations = summary?.recommendations ?? []
   const insights = summary?.insights ?? []
 
   const filteredCandidates = useMemo(() => {
@@ -246,6 +256,28 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     return filteredInsights[0] ?? null
   }, [insights, filteredInsights, selectedInsightId])
 
+  const filteredRecommendations = useMemo(() => {
+    const lowerQuery = query.trim().toLowerCase()
+    const filtered = recommendations.filter((recommendation) => {
+      return (
+        !lowerQuery ||
+        localizeRecommendationTitle(recommendation, language).toLowerCase().includes(lowerQuery) ||
+        recommendation.pathPreview.toLowerCase().includes(lowerQuery) ||
+        localizeRecommendationReason(recommendation, language).toLowerCase().includes(lowerQuery) ||
+        localizeRecommendationText(recommendation, language).toLowerCase().includes(lowerQuery)
+      )
+    })
+    return sortRecommendations(filtered, sortMode)
+  }, [recommendations, query, language, sortMode])
+
+  const selectedRecommendation = useMemo(() => {
+    if (selectedRecommendationId) {
+      const selected = recommendations.find((recommendation) => recommendation.id === selectedRecommendationId)
+      if (selected) return selected
+    }
+    return filteredRecommendations[0] ?? null
+  }, [recommendations, filteredRecommendations, selectedRecommendationId])
+
   useEffect(() => {
     if (!selectedCandidateId && filteredCandidates[0]) {
       setSelectedCandidateId(filteredCandidates[0].id)
@@ -263,6 +295,15 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setSelectedInsightId(filteredInsights[0]?.id ?? null)
     }
   }, [insights, filteredInsights, selectedInsightId])
+
+  useEffect(() => {
+    if (!selectedRecommendationId && filteredRecommendations[0]) {
+      setSelectedRecommendationId(filteredRecommendations[0].id)
+    }
+    if (selectedRecommendationId && !recommendations.some((recommendation) => recommendation.id === selectedRecommendationId)) {
+      setSelectedRecommendationId(filteredRecommendations[0]?.id ?? null)
+    }
+  }, [recommendations, filteredRecommendations, selectedRecommendationId])
 
   const totalCandidates = candidates.length
   const selectedCleanableIds = useMemo(
@@ -287,6 +328,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       const nextSummary = await macCleaner.scan({ language, mode: 'comprehensive' })
       setSummary(nextSummary)
       setSelectedCategoryId('all')
+      setResultView('recommendations')
+      setSelectedRecommendationId(nextSummary.recommendations[0]?.id ?? null)
       setSelectedCandidateId(nextSummary.candidates[0]?.id ?? null)
       setSelectedInsightId(nextSummary.insights[0]?.id ?? null)
       setSelectedIds(new Set())
@@ -413,6 +456,28 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       setNotice(null)
       setError(formatError(revealError))
     }
+  }
+
+  async function revealRecommendation(recommendation: StorageRecommendation): Promise<void> {
+    if (!recommendation.pathToken) {
+      setNotice(t(language, 'ui.revealUnavailable'))
+      return
+    }
+    try {
+      const revealResult = await macCleaner.revealPath(recommendation.pathToken)
+      handleRevealResult(revealResult)
+    } catch (revealError) {
+      setNotice(null)
+      setError(formatError(revealError))
+    }
+  }
+
+  async function handleRecommendationAction(recommendation: StorageRecommendation): Promise<void> {
+    if (recommendation.canExecute && recommendation.recommendedAction === 'move-to-trash' && recommendation.candidateIds?.length) {
+      await openCleanupPreview(recommendation.candidateIds)
+      return
+    }
+    await revealRecommendation(recommendation)
   }
 
   async function openFullDiskAccessSettings(): Promise<void> {
@@ -800,6 +865,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         <section className="content-grid">
           <div className="candidate-panel">
             <div className="result-tabs" role="tablist" aria-label={t(language, 'ui.storageOverview')}>
+              <button className={resultView === 'recommendations' ? 'active' : ''} onClick={() => setResultView('recommendations')}>
+                <Sparkles size={15} />
+                {t(language, 'ui.viewRecommendations')}
+              </button>
               <button className={resultView === 'cleanup' ? 'active' : ''} onClick={() => setResultView('cleanup')}>
                 <ShieldCheck size={15} />
                 {t(language, 'ui.viewCleanup')}
@@ -811,11 +880,19 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             </div>
             <div className="table-toolbar">
               <div className="toolbar-summary">
-                <span>{resultView === 'cleanup' ? t(language, 'ui.cleanupCandidates') : t(language, 'ui.spaceMapTitle')}</span>
+                <span>
+                  {resultView === 'recommendations'
+                    ? t(language, 'ui.recommendationsTitle')
+                    : resultView === 'cleanup'
+                      ? t(language, 'ui.cleanupCandidates')
+                      : t(language, 'ui.spaceMapTitle')}
+                </span>
                 <strong>
-                  {resultView === 'cleanup'
-                    ? t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })
-                    : t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })}
+                  {resultView === 'recommendations'
+                    ? t(language, 'ui.recommendationCount', { count: filteredRecommendations.length.toLocaleString(language) })
+                    : resultView === 'cleanup'
+                      ? t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })
+                      : t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })}
                 </strong>
               </div>
               <div className="toolbar-controls">
@@ -905,7 +982,38 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               </div>
             )}
 
-            {resultView === 'cleanup' ? (
+            {resultView === 'recommendations' ? (
+              <>
+                <div className="candidate-table recommendation-table" role="table" aria-label={t(language, 'ui.recommendationsTitle')}>
+                  <div className="table-row table-head" role="row">
+                    <span>{t(language, 'ui.tableItem')}</span>
+                    <span>{t(language, 'ui.tableSafety')}</span>
+                    <span>{t(language, 'ui.tableSize')}</span>
+                    <span>{t(language, 'ui.tableImpact')}</span>
+                    <span>{t(language, 'ui.tableActions')}</span>
+                  </div>
+                  {filteredRecommendations.map((recommendation) => (
+                    <RecommendationRow
+                      key={recommendation.id}
+                      recommendation={recommendation}
+                      language={language}
+                      selected={selectedRecommendation?.id === recommendation.id}
+                      onSelect={() => setSelectedRecommendationId(recommendation.id)}
+                      onReveal={() => revealRecommendation(recommendation)}
+                      onAction={() => void handleRecommendationAction(recommendation)}
+                    />
+                  ))}
+                </div>
+
+                {!filteredRecommendations.length && (
+                  <div className="empty-state">
+                    <Sparkles size={28} />
+                    <strong>{summary ? t(language, 'ui.recommendationEmptyTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+                    <span>{summary ? t(language, 'ui.recommendationEmptyText') : t(language, 'ui.emptyInitialText')}</span>
+                  </div>
+                )}
+              </>
+            ) : resultView === 'cleanup' ? (
               <>
                 <div className="candidate-table" role="table" aria-label={t(language, 'ui.cleanupCandidates')}>
                   <div className="table-row table-head" role="row">
@@ -971,7 +1079,14 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
             )}
           </div>
 
-          {resultView === 'cleanup' ? (
+          {resultView === 'recommendations' ? (
+            <RecommendationInspector
+              recommendation={selectedRecommendation}
+              language={language}
+              onReveal={selectedRecommendation ? () => revealRecommendation(selectedRecommendation) : undefined}
+              onAction={selectedRecommendation ? () => void handleRecommendationAction(selectedRecommendation) : undefined}
+            />
+          ) : resultView === 'cleanup' ? (
             <CandidateInspector
               candidate={selectedCandidate}
               language={language}
@@ -1220,6 +1335,86 @@ function InsightRow({
   )
 }
 
+function RecommendationRow({
+  recommendation,
+  language,
+  selected,
+  onSelect,
+  onReveal,
+  onAction
+}: {
+  recommendation: StorageRecommendation
+  language: AppLanguage
+  selected: boolean
+  onSelect: () => void
+  onReveal: () => void
+  onAction: () => void
+}): JSX.Element {
+  const handleKeyboardSelect = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect()
+    }
+  }
+  const Icon = recommendationIcon(recommendation.kind)
+  const riskClass = recommendationRiskClass[recommendation.risk]
+
+  return (
+    <div
+      className={selected ? 'table-row candidate-row selected' : 'table-row candidate-row'}
+      role="row"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleKeyboardSelect}
+    >
+      <span className="candidate-title">
+        <span className="candidate-title-line insight-title-line">
+          <span className={`candidate-kind-mark ${riskClass}`}>
+            <Icon size={15} />
+          </span>
+          <span className="candidate-title-copy">
+            <strong>{localizeRecommendationTitle(recommendation, language)}</strong>
+            <small>{recommendation.pathPreview}</small>
+          </span>
+        </span>
+      </span>
+      <span className={`safety-badge ${riskClass}`}>
+        <Info size={14} />
+        {t(language, `ui.recommendationRisk.${recommendation.risk}`)}
+      </span>
+      <span className="size-cell">{formatBytes(recommendation.sizeBytes)}</span>
+      <span className="impact-cell">
+        {localizeRecommendationExplanation(recommendation, 'summary', language, localizeRecommendationRecommendation(recommendation, language))}
+      </span>
+      <span className="row-actions">
+        <button
+          className="icon-button"
+          title={t(language, 'ui.revealInFinder')}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${localizeRecommendationTitle(recommendation, language)}`}
+          disabled={!recommendation.pathToken}
+          onClick={(event) => {
+            event.stopPropagation()
+            onReveal()
+          }}
+        >
+          <FolderOpen size={15} />
+        </button>
+        <button
+          className={recommendation.canExecute ? 'cleanup-button row-cleanup-button' : 'icon-button'}
+          title={localizeRecommendationAction(recommendation, language)}
+          aria-label={`${localizeRecommendationAction(recommendation, language)}: ${localizeRecommendationTitle(recommendation, language)}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onAction()
+          }}
+        >
+          {recommendation.canExecute ? <Trash2 size={15} /> : <ChevronRight size={15} />}
+        </button>
+      </span>
+    </div>
+  )
+}
+
 function SafetyBadge({ safety, language }: { safety: SafetyLevel; language: AppLanguage }): JSX.Element {
   const meta = safetyMeta[safety]
   const Icon = meta.icon
@@ -1447,6 +1642,101 @@ function InsightInspector({
   )
 }
 
+function RecommendationInspector({
+  recommendation,
+  language,
+  onReveal,
+  onAction
+}: {
+  recommendation: StorageRecommendation | null
+  language: AppLanguage
+  onReveal?: () => void
+  onAction?: () => void
+}): JSX.Element {
+  if (!recommendation) {
+    return (
+      <aside className="inspector empty-inspector">
+        <Sparkles size={30} />
+        <strong>{t(language, 'ui.recommendationEmptyTitle')}</strong>
+        <span>{t(language, 'ui.recommendationEmptyText')}</span>
+      </aside>
+    )
+  }
+
+  const Icon = recommendationIcon(recommendation.kind)
+  const riskClass = recommendationRiskClass[recommendation.risk]
+
+  return (
+    <aside className="inspector">
+      <div className="inspector-heading">
+        <span>{t(language, 'ui.recommendationsTitle')}</span>
+        <span className={`safety-badge ${riskClass}`}>
+          <Info size={14} />
+          {t(language, `ui.recommendationRisk.${recommendation.risk}`)}
+        </span>
+      </div>
+      <h2>{localizeRecommendationTitle(recommendation, language)}</h2>
+      <p className="path-line">{recommendation.pathPreview}</p>
+
+      <section className={`recommendation-card ${riskClass}`}>
+        <div>
+          <Icon size={18} />
+          <span>{t(language, 'ui.recommendationAction')}</span>
+        </div>
+        <strong>{localizeRecommendationExplanation(recommendation, 'nextStep', language, localizeRecommendationAction(recommendation, language))}</strong>
+        <p>{localizeRecommendationExplanation(recommendation, 'summary', language, localizeRecommendationRecommendation(recommendation, language))}</p>
+      </section>
+
+      <div className="detail-stack">
+        <div className="detail-item">
+          <span>{t(language, 'ui.estimatedSize')}</span>
+          <strong>{formatBytes(recommendation.sizeBytes)}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.pathCount')}</span>
+          <strong>{recommendation.pathCount.toLocaleString(language)}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.recommendationAction')}</span>
+          <strong>{localizeRecommendationAction(recommendation, language)}</strong>
+        </div>
+      </div>
+
+      <section className={`risk-box ${riskClass}`}>
+        <div>
+          <ShieldCheck size={18} />
+          <strong>{t(language, `ui.recommendationRisk.${recommendation.risk}`)}</strong>
+        </div>
+        <p>{recommendation.canExecute ? localizeRecommendationRecommendation(recommendation, language) : t(language, 'ui.recommendationNotExecutable')}</p>
+      </section>
+
+      <section className="impact-box">
+        <span>{t(language, 'ui.whatThisIs')}</span>
+        <p>{localizeRecommendationExplanation(recommendation, 'what', language, localizeRecommendationReason(recommendation, language))}</p>
+        <span>{t(language, 'ui.canDelete')}</span>
+        <p>{localizeRecommendationExplanation(recommendation, 'cleanability', language, localizeRecommendationRecommendation(recommendation, language))}</p>
+        <span>{t(language, 'ui.afterCleanup')}</span>
+        <p>{localizeRecommendationExplanation(recommendation, 'afterAction', language, localizeRecommendationRecommendation(recommendation, language))}</p>
+        <span>{t(language, 'ui.whenToKeep')}</span>
+        <p>{localizeRecommendationExplanation(recommendation, 'keepAdvice', language, localizeRecommendationRecommendation(recommendation, language))}</p>
+        <span>{t(language, 'ui.estimateSource')}</span>
+        <p>{formatEstimateSource(recommendation.estimateSource, language)}</p>
+      </section>
+
+      <div className="inspector-actions">
+        <button className="secondary-button" disabled={!recommendation.pathToken} onClick={onReveal}>
+          <FolderOpen size={16} />
+          {t(language, 'ui.revealLocation')}
+        </button>
+        <button className={recommendation.canExecute ? 'primary-button danger' : 'secondary-button'} onClick={onAction}>
+          {recommendation.canExecute ? <Trash2 size={16} /> : <ChevronRight size={16} />}
+          {localizeRecommendationAction(recommendation, language)}
+        </button>
+      </div>
+    </aside>
+  )
+}
+
 function ConfirmationModal({
   preview,
   language,
@@ -1660,6 +1950,24 @@ function localizeInsightExplanationText(insight: StorageInsight, language: AppLa
   return localizeHumanExplanationText(insight.explanation, language)
 }
 
+function localizeRecommendationExplanation(
+  recommendation: StorageRecommendation,
+  field: HumanExplanationField,
+  language: AppLanguage,
+  fallback = ''
+): string {
+  return localizeHumanExplanation(recommendation.explanation, field, language, fallback)
+}
+
+function localizeRecommendationText(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return [
+    localizeRecommendationTitle(recommendation, language),
+    localizeRecommendationReason(recommendation, language),
+    localizeRecommendationRecommendation(recommendation, language),
+    localizeHumanExplanationText(recommendation.explanation, language)
+  ].join(' ')
+}
+
 function localizePreviewExplanation(
   preview: CleanupPreview,
   field: HumanExplanationField,
@@ -1718,6 +2026,22 @@ function localizeInsightReason(insight: StorageInsight, language: AppLanguage): 
 
 function localizeInsightRecommendation(insight: StorageInsight, language: AppLanguage): string {
   return insight.recommendationKey ? t(language, insight.recommendationKey, insight.recommendationParams) : insight.recommendation
+}
+
+function localizeRecommendationTitle(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return recommendation.titleKey ? t(language, recommendation.titleKey, recommendation.titleParams) : recommendation.title
+}
+
+function localizeRecommendationReason(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return recommendation.reasonKey ? t(language, recommendation.reasonKey, recommendation.reasonParams) : recommendation.reason
+}
+
+function localizeRecommendationRecommendation(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return recommendation.recommendationKey ? t(language, recommendation.recommendationKey, recommendation.recommendationParams) : recommendation.recommendation
+}
+
+function localizeRecommendationAction(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return recommendation.actionLabelKey ? t(language, recommendation.actionLabelKey, recommendation.actionLabelParams) : recommendation.actionLabel
 }
 
 function localizeCleanupFailure(failure: CleanupFailure, language: AppLanguage): string {
@@ -1879,11 +2203,34 @@ function sortCandidates(
   })
 }
 
+function sortRecommendations(
+  recommendations: StorageRecommendation[],
+  sortMode: 'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'
+): StorageRecommendation[] {
+  const riskScore: Record<StorageRecommendationRisk, number> = { safe: 3, confirm: 2, 'manual-only': 1 }
+  return [...recommendations].sort((left, right) => {
+    if (sortMode === 'name-asc') return left.title.localeCompare(right.title)
+    if (sortMode === 'risk-desc') return riskScore[right.risk] - riskScore[left.risk] || right.sizeBytes - left.sizeBytes
+    if (sortMode === 'recommended') return right.priorityScore - left.priorityScore
+    return right.sizeBytes - left.sizeBytes
+  })
+}
+
 function kindPriority(candidate: CleanupCandidate): number {
   if (candidate.safety === 'discouraged') return 9
   if (candidate.kind === 'cache' || candidate.kind === 'log' || candidate.kind === 'diagnostic' || candidate.kind === 'developer-cache') return 0
   if (candidate.kind === 'download-archive') return 1
   return 2
+}
+
+function recommendationIcon(kind: StorageRecommendation['kind']): LucideIcon {
+  if (kind === 'git-garbage') return FileArchive
+  if (kind === 'xcode-simulator-cache') return Gauge
+  if (kind === 'homebrew-temp') return Archive
+  if (kind === 'codex-history' || kind === 'codex-worktree') return Sparkles
+  if (kind === 'claude-vm') return HardDrive
+  if (kind === 'large-app') return FolderOpen
+  return Info
 }
 
 function formatEstimateSource(source: CleanupCandidate['estimateSource'], language: AppLanguage): string {
@@ -1934,6 +2281,8 @@ function createUnavailableApi(): MacCleanerApi {
     cancelScan: unavailable,
     cleanupPreview: unavailable,
     moveToTrash: unavailable,
+    previewRecommendationAction: unavailable,
+    runRecommendationAction: unavailable,
     revealPath: unavailable,
     openFullDiskAccessSettings: unavailable,
     checkForLocalUpdate: unavailable,
