@@ -21,6 +21,10 @@ import type {
   StorageInsight,
   StorageInsightKind,
   StorageInsightRisk,
+  StorageRecommendation,
+  StorageRecommendationKind,
+  StorageRecommendationRisk,
+  RecommendationAction,
   TrashSummary
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
@@ -50,6 +54,10 @@ const MAX_INSIGHT_SCAN_MS = 3_500
 const MAX_INSIGHTS = 80
 const INSIGHT_MIN_BYTES = 50 * 1024 * 1024
 const INSIGHT_MEASURE_CONCURRENCY = 3
+const MAX_RECOMMENDATIONS = 24
+const RECOMMENDATION_MIN_BYTES = 100 * 1024 * 1024
+const LARGE_APP_MIN_BYTES = 1024 * 1024 * 1024
+const GIT_OBJECTS_MIN_BYTES = 250 * 1024 * 1024
 
 interface CategoryDefinition {
   id: string
@@ -75,6 +83,7 @@ export interface InternalCandidate extends CleanupCandidate {
 export interface ScanRun {
   summary: ScanSummary
   candidates: Map<string, InternalCandidate>
+  recommendations: Map<string, StorageRecommendation>
   pathTokens: Map<string, string>
 }
 
@@ -123,6 +132,11 @@ interface InsightScanResult {
   roots: string[]
   scannedRootCount: number
   skippedRootCount: number
+}
+
+interface RecommendationScanResult {
+  recommendations: StorageRecommendation[]
+  pathTokens: Map<string, string>
 }
 
 const makeCategories = (): CategoryDefinition[] => [
@@ -332,6 +346,22 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   const disk = await getDiskSummary(homeDir)
   const fullDiskAccessStatus = await detectFullDiskAccessStatus(homeDir)
   const publicCandidates = [...candidates.values()].map(stripInternalCandidate)
+  const recommendationScan = mode === 'comprehensive'
+    ? await scanHighValueRecommendations(homeDir, publicCandidates, insightScan.insights, issues, {
+        signal: options.signal,
+        deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS,
+        issues,
+        progress,
+        onProgress: options.onProgress,
+        scanId,
+        homeDir,
+        language
+      })
+    : { recommendations: [], pathTokens: new Map<string, string>() }
+  for (const [token, targetPath] of recommendationScan.pathTokens) {
+    pathTokens.set(token, targetPath)
+  }
+  const recommendationMap = new Map(recommendationScan.recommendations.map((recommendation) => [recommendation.id, recommendation]))
   const totalCleanableBytes = publicCandidates
     .filter((candidate) => candidate.canClean)
     .reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
@@ -355,6 +385,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       totalCleanableBytes,
       categories,
       candidates: publicCandidates,
+      recommendations: recommendationScan.recommendations,
       insights: insightScan.insights,
       issueGroups: groupScanIssues(issues, homeDir, language),
       coverage: makeCoverage(mode, insightScan, progress, issues, fullDiskAccessStatus),
@@ -362,6 +393,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       trash
     },
     candidates,
+    recommendations: recommendationMap,
     pathTokens
   }
 }
@@ -626,6 +658,438 @@ function uniqueExistingRoots(roots: string[]): string[] {
     output.push(resolved)
   }
   return output
+}
+
+async function scanHighValueRecommendations(
+  homeDir: string,
+  candidates: CleanupCandidate[],
+  insights: StorageInsight[],
+  issues: ScanIssue[],
+  ctx: MeasureContext
+): Promise<RecommendationScanResult> {
+  const recommendations: StorageRecommendation[] = []
+  const pathTokens = new Map<string, string>()
+  const seen = new Set<string>()
+
+  const add = (recommendation: StorageRecommendation, targetPath?: string): void => {
+    if (seen.has(recommendation.id)) return
+    seen.add(recommendation.id)
+    recommendations.push(recommendation)
+    if (recommendation.pathToken && targetPath) {
+      pathTokens.set(recommendation.pathToken, targetPath)
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.canClean || candidate.sizeBytes < RECOMMENDATION_MIN_BYTES) continue
+    add(makeRecommendationFromCandidate(candidate, ctx.language))
+  }
+
+  const gitRepositories = await findLikelyGitRepositories(homeDir)
+  for (const repoPath of gitRepositories) {
+    const objectsPath = path.join(repoPath, '.git', 'objects')
+    const measured = await measureRecommendationPath(objectsPath, ctx, issues)
+    if (!measured || measured.sizeBytes < GIT_OBJECTS_MIN_BYTES) continue
+    const tempCount = await countGitTempObjects(objectsPath, ctx)
+    add(
+      makeMeasuredRecommendation({
+        kind: 'git-garbage',
+        targetPath: objectsPath,
+        homeDir,
+        measured,
+        ctx,
+        risk: 'confirm',
+        recommendedAction: 'run-safe-tool',
+        canExecute: false,
+        titleKey: 'recommendation.gitGarbage.title',
+        reasonKey: 'recommendation.gitGarbage.reason',
+        recommendationKey: 'recommendation.gitGarbage.recommendation',
+        actionLabelKey: 'recommendation.gitGarbage.action',
+        explanationKeyBase: 'recommendation.gitGarbage.explanation',
+        params: {
+          repoName: path.basename(repoPath),
+          tempCount,
+          size: formatBytesForMessage(measured.sizeBytes)
+        }
+      }),
+      objectsPath
+    )
+  }
+
+  const shouldInspectSystemLocations = path.resolve(homeDir) === path.resolve(os.homedir())
+  const fixedTargets: Array<{
+    path: string
+    kind: StorageRecommendationKind
+    risk: StorageRecommendationRisk
+    action: RecommendationAction
+    keyBase: string
+    minBytes?: number
+  }> = []
+
+  if (shouldInspectSystemLocations) {
+    fixedTargets.push({
+      path: '/Library/Developer/CoreSimulator/Caches/dyld',
+      kind: 'xcode-simulator-cache',
+      risk: 'safe',
+      action: 'open-owner-app',
+      keyBase: 'recommendation.xcodeDyld',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    })
+  }
+
+  fixedTargets.push(
+    {
+      path: path.join(homeDir, 'Library', 'Developer', 'CoreSimulator', 'Devices'),
+      kind: 'xcode-simulator-cache',
+      risk: 'confirm',
+      action: 'open-owner-app',
+      keyBase: 'recommendation.xcodeDevices',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    },
+    {
+      path: path.join(homeDir, 'Library', 'Developer', 'XCTestDevices'),
+      kind: 'xcode-simulator-cache',
+      risk: 'confirm',
+      action: 'open-owner-app',
+      keyBase: 'recommendation.xctestDevices',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    }
+  )
+
+  if (shouldInspectSystemLocations) {
+    fixedTargets.push(
+      {
+        path: '/opt/homebrew/var/homebrew/tmp',
+        kind: 'homebrew-temp',
+        risk: 'safe',
+        action: 'run-safe-tool',
+        keyBase: 'recommendation.homebrewTemp',
+        minBytes: 10 * 1024 * 1024
+      },
+      {
+        path: '/usr/local/var/homebrew/tmp',
+        kind: 'homebrew-temp',
+        risk: 'safe',
+        action: 'run-safe-tool',
+        keyBase: 'recommendation.homebrewTemp',
+        minBytes: 10 * 1024 * 1024
+      },
+      {
+        path: '/opt/homebrew/Cellar',
+        kind: 'manual-review',
+        risk: 'manual-only',
+        action: 'reveal-only',
+        keyBase: 'recommendation.homebrewCellar',
+        minBytes: LARGE_APP_MIN_BYTES
+      },
+      {
+        path: '/usr/local/Cellar',
+        kind: 'manual-review',
+        risk: 'manual-only',
+        action: 'reveal-only',
+        keyBase: 'recommendation.homebrewCellar',
+        minBytes: LARGE_APP_MIN_BYTES
+      }
+    )
+  }
+
+  fixedTargets.push(
+    {
+      path: path.join(homeDir, '.codex', 'sessions'),
+      kind: 'codex-history',
+      risk: 'confirm',
+      action: 'reveal-only',
+      keyBase: 'recommendation.codexSessions',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    },
+    {
+      path: path.join(homeDir, '.codex', 'worktrees'),
+      kind: 'codex-worktree',
+      risk: 'manual-only',
+      action: 'reveal-only',
+      keyBase: 'recommendation.codexWorktrees',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    },
+    {
+      path: path.join(homeDir, 'Library', 'Application Support', 'Claude', 'vm_bundles'),
+      kind: 'claude-vm',
+      risk: 'confirm',
+      action: 'reveal-only',
+      keyBase: 'recommendation.claudeVm',
+      minBytes: RECOMMENDATION_MIN_BYTES
+    }
+  )
+
+  for (const target of fixedTargets) {
+    const measured = await measureRecommendationPath(target.path, ctx, issues)
+    if (!measured || measured.sizeBytes < (target.minBytes ?? RECOMMENDATION_MIN_BYTES)) continue
+    add(
+      makeMeasuredRecommendation({
+        kind: target.kind,
+        targetPath: target.path,
+        homeDir,
+        measured,
+        ctx,
+        risk: target.risk,
+        recommendedAction: target.action,
+        canExecute: false,
+        titleKey: `${target.keyBase}.title`,
+        reasonKey: `${target.keyBase}.reason`,
+        recommendationKey: `${target.keyBase}.recommendation`,
+        actionLabelKey: `${target.keyBase}.action`,
+        explanationKeyBase: `${target.keyBase}.explanation`,
+        params: {
+          name: path.basename(target.path),
+          size: formatBytesForMessage(measured.sizeBytes)
+        }
+      }),
+      target.path
+    )
+  }
+
+  for (const insight of insights) {
+    if (insight.kind !== 'application' || insight.sizeBytes < LARGE_APP_MIN_BYTES) continue
+    add(makeRecommendationFromInsight(insight, ctx.language))
+  }
+
+  return {
+    recommendations: recommendations
+      .sort((left, right) => right.priorityScore - left.priorityScore)
+      .slice(0, MAX_RECOMMENDATIONS),
+    pathTokens
+  }
+}
+
+async function findLikelyGitRepositories(homeDir: string): Promise<string[]> {
+  const roots = [homeDir, path.join(homeDir, 'Projects'), path.join(homeDir, 'Developer'), path.join(homeDir, 'Documents')]
+  const repositories: string[] = []
+  const seen = new Set<string>()
+  for (const root of roots) {
+    let entries: string[]
+    try {
+      entries = await fs.readdir(root)
+    } catch {
+      continue
+    }
+    for (const entry of entries.slice(0, 240)) {
+      if (entry.startsWith('.') && root === homeDir) continue
+      const repoPath = path.join(root, entry)
+      const resolved = path.resolve(repoPath)
+      if (seen.has(resolved)) continue
+      seen.add(resolved)
+      try {
+        const stats = await fs.lstat(repoPath)
+        if (!stats.isDirectory() || stats.isSymbolicLink()) continue
+        const gitObjects = path.join(repoPath, '.git', 'objects')
+        const gitObjectsStats = await fs.lstat(gitObjects)
+        if (gitObjectsStats.isDirectory() && !gitObjectsStats.isSymbolicLink()) {
+          repositories.push(repoPath)
+        }
+      } catch {
+        // Not a Git repository we can inspect.
+      }
+    }
+  }
+  return repositories
+}
+
+async function measureRecommendationPath(
+  targetPath: string,
+  ctx: MeasureContext,
+  issues: ScanIssue[]
+): Promise<MeasuredPath | null> {
+  try {
+    throwIfAborted(ctx.signal)
+    const stats = await fs.lstat(targetPath)
+    if (stats.isSymbolicLink()) {
+      issues.push(makeIssue(targetPath, 'issue.skipSymlink', 'info', ctx.language))
+      return null
+    }
+    return stats.isDirectory()
+      ? measurePath(targetPath, { ...ctx, deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS })
+      : measureSingleStats(stats)
+  } catch (error) {
+    if (isAbortError(error)) throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT') {
+      issues.push(makeIssue(targetPath, 'issue.cannotMeasure', 'warning', ctx.language, { error: formatError(error) }))
+    }
+    return null
+  }
+}
+
+async function countGitTempObjects(objectsPath: string, ctx: MeasureContext): Promise<number> {
+  let count = 0
+  async function visit(targetPath: string): Promise<void> {
+    if (count > 10_000 || Date.now() > ctx.deadlineMs) return
+    let entries: string[]
+    try {
+      entries = await fs.readdir(targetPath)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      throwIfAborted(ctx.signal)
+      const entryPath = path.join(targetPath, entry)
+      let stats
+      try {
+        stats = await fs.lstat(entryPath)
+      } catch {
+        continue
+      }
+      if (stats.isSymbolicLink()) continue
+      if (stats.isDirectory()) {
+        await visit(entryPath)
+      } else if (entry.startsWith('tmp_pack_') || entry.startsWith('tmp_obj_')) {
+        count += 1
+      }
+    }
+  }
+  await visit(objectsPath)
+  return count
+}
+
+function makeRecommendationFromCandidate(candidate: CleanupCandidate, language: AppLanguage): StorageRecommendation {
+  const risk = candidate.safety === 'safe' ? 'safe' : 'confirm'
+  const titleKey = 'recommendation.cleanupCandidate.title'
+  const params = {
+    title: candidate.title,
+    categoryName: candidate.categoryName,
+    size: formatBytesForMessage(candidate.sizeBytes)
+  }
+  return {
+    id: stableId('recommendation-candidate', candidate.id),
+    scanId: candidate.scanId,
+    kind: candidate.kind === 'developer-cache' ? 'xcode-simulator-cache' : 'manual-review',
+    risk,
+    recommendedAction: 'move-to-trash',
+    canExecute: true,
+    title: t(language, titleKey, params),
+    titleKey,
+    titleParams: params,
+    sizeBytes: candidate.sizeBytes,
+    itemCount: candidate.itemCount,
+    pathCount: candidate.pathCount,
+    pathPreview: candidate.pathPreview,
+    pathSamples: candidate.pathSamples,
+    pathToken: candidate.pathToken,
+    candidateIds: [candidate.id],
+    priorityScore: recommendationPriority(risk, candidate.sizeBytes, 'move-to-trash'),
+    estimateSource: candidate.estimateSource,
+    reason: candidate.reason,
+    reasonKey: candidate.reasonKey,
+    recommendation: t(language, 'recommendation.cleanupCandidate.recommendation'),
+    recommendationKey: 'recommendation.cleanupCandidate.recommendation',
+    actionLabel: candidate.actionLabel,
+    actionLabelKey: candidate.actionLabelKey,
+    explanation: candidate.explanation,
+    lastModified: candidate.lastModified
+  }
+}
+
+function makeRecommendationFromInsight(insight: StorageInsight, language: AppLanguage): StorageRecommendation {
+  const params = { name: insight.title, size: formatBytesForMessage(insight.sizeBytes) }
+  return {
+    id: stableId('recommendation-large-app', insight.id),
+    scanId: insight.scanId,
+    kind: 'large-app',
+    risk: 'manual-only',
+    recommendedAction: 'open-owner-app',
+    canExecute: false,
+    title: t(language, 'recommendation.largeApp.title', params),
+    titleKey: 'recommendation.largeApp.title',
+    titleParams: params,
+    sizeBytes: insight.sizeBytes,
+    itemCount: insight.itemCount,
+    pathCount: insight.pathCount,
+    pathPreview: insight.pathPreview,
+    pathSamples: insight.pathSamples,
+    pathToken: insight.pathToken,
+    priorityScore: recommendationPriority('manual-only', insight.sizeBytes, 'open-owner-app'),
+    estimateSource: insight.estimateSource,
+    reason: t(language, 'recommendation.largeApp.reason'),
+    reasonKey: 'recommendation.largeApp.reason',
+    recommendation: t(language, 'recommendation.largeApp.recommendation'),
+    recommendationKey: 'recommendation.largeApp.recommendation',
+    actionLabel: t(language, 'recommendation.largeApp.action'),
+    actionLabelKey: 'recommendation.largeApp.action',
+    explanation: makeHumanExplanation(language, 'recommendation.largeApp.explanation', params),
+    lastModified: insight.lastModified
+  }
+}
+
+function makeMeasuredRecommendation({
+  kind,
+  targetPath,
+  homeDir,
+  measured,
+  ctx,
+  risk,
+  recommendedAction,
+  canExecute,
+  titleKey,
+  reasonKey,
+  recommendationKey,
+  actionLabelKey,
+  explanationKeyBase,
+  params
+}: {
+  kind: StorageRecommendationKind
+  targetPath: string
+  homeDir: string
+  measured: MeasuredPath
+  ctx: MeasureContext
+  risk: StorageRecommendationRisk
+  recommendedAction: RecommendationAction
+  canExecute: boolean
+  titleKey: string
+  reasonKey: string
+  recommendationKey: string
+  actionLabelKey: string
+  explanationKeyBase: string
+  params: Record<string, string | number>
+}): StorageRecommendation {
+  const pathToken = crypto.randomUUID()
+  return {
+    id: stableId(`recommendation-${kind}`, targetPath),
+    scanId: ctx.scanId,
+    kind,
+    risk,
+    recommendedAction,
+    canExecute,
+    title: t(ctx.language, titleKey, params),
+    titleKey,
+    titleParams: params,
+    sizeBytes: measured.sizeBytes,
+    itemCount: measured.itemCount,
+    pathCount: measured.pathCount,
+    pathPreview: compactPathForDisplay(targetPath, homeDir),
+    pathSamples: [compactPathForDisplay(targetPath, homeDir)],
+    pathToken,
+    priorityScore: recommendationPriority(risk, measured.sizeBytes, recommendedAction),
+    estimateSource: measured.estimateSource,
+    reason: t(ctx.language, reasonKey, params),
+    reasonKey,
+    reasonParams: params,
+    recommendation: t(ctx.language, recommendationKey, params),
+    recommendationKey,
+    recommendationParams: params,
+    actionLabel: t(ctx.language, actionLabelKey, params),
+    actionLabelKey,
+    actionLabelParams: params,
+    explanation: makeHumanExplanation(ctx.language, explanationKeyBase, params),
+    lastModified: measured.lastModified?.toISOString()
+  }
+}
+
+function recommendationPriority(
+  risk: StorageRecommendationRisk,
+  sizeBytes: number,
+  action: RecommendationAction
+): number {
+  const riskWeight = risk === 'safe' ? 3_000_000_000_000 : risk === 'confirm' ? 2_000_000_000_000 : 1_000_000_000_000
+  const actionWeight = action === 'move-to-trash' ? 200_000_000_000 : action === 'run-safe-tool' ? 100_000_000_000 : 0
+  return riskWeight + actionWeight + sizeBytes
 }
 
 async function discoverInsightsForRoot(

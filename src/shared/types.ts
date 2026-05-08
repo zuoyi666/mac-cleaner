@@ -12,6 +12,17 @@ export type CandidateDisplayKind = 'single' | 'group'
 export type RevealTargetKind = 'file' | 'directory' | 'missing' | 'unknown'
 export type RevealMethod = 'finder-reveal' | 'open-path' | 'none'
 export type StorageInsightRisk = 'safe-opportunity' | 'review' | 'not-recommended'
+export type StorageRecommendationKind =
+  | 'git-garbage'
+  | 'xcode-simulator-cache'
+  | 'homebrew-temp'
+  | 'codex-history'
+  | 'codex-worktree'
+  | 'claude-vm'
+  | 'large-app'
+  | 'manual-review'
+export type StorageRecommendationRisk = 'safe' | 'confirm' | 'manual-only'
+export type RecommendationAction = 'move-to-trash' | 'run-safe-tool' | 'open-owner-app' | 'reveal-only'
 export type FullDiskAccessStatus = 'unknown' | 'likely-granted' | 'likely-missing'
 export type StorageInsightKind =
   | 'directory'
@@ -175,6 +186,38 @@ export interface StorageInsight {
   lastModified?: string
 }
 
+export interface StorageRecommendation {
+  id: string
+  scanId: string
+  kind: StorageRecommendationKind
+  risk: StorageRecommendationRisk
+  recommendedAction: RecommendationAction
+  canExecute: boolean
+  title: string
+  titleKey?: string
+  titleParams?: I18nParams
+  sizeBytes: number
+  itemCount: number
+  pathCount: number
+  pathPreview: string
+  pathSamples: string[]
+  pathToken?: string
+  candidateIds?: string[]
+  priorityScore: number
+  estimateSource: EstimateSource
+  reason: string
+  reasonKey?: string
+  reasonParams?: I18nParams
+  recommendation: string
+  recommendationKey?: string
+  recommendationParams?: I18nParams
+  actionLabel: string
+  actionLabelKey?: string
+  actionLabelParams?: I18nParams
+  explanation: HumanExplanation
+  lastModified?: string
+}
+
 export interface TrashSummary {
   sizeBytes: number
   itemCount: number
@@ -196,11 +239,44 @@ export interface ScanSummary {
   totalCleanableBytes: number
   categories: CategorySummary[]
   candidates: CleanupCandidate[]
+  recommendations: StorageRecommendation[]
   insights: StorageInsight[]
   issueGroups: ScanIssueGroup[]
   coverage: ScanCoverage
   issues: ScanIssue[]
   trash: TrashSummary
+}
+
+export interface RecommendationActionPreview {
+  recommendationId: string
+  confirmationId: string
+  scanId: string
+  title: string
+  titleKey?: string
+  titleParams?: I18nParams
+  action: RecommendationAction
+  canExecute: boolean
+  totalBytes: number
+  pathCount: number
+  pathSamples: string[]
+  actionLabel: string
+  actionLabelKey?: string
+  actionLabelParams?: I18nParams
+  explanation: HumanExplanation
+  warning: string
+  warningKey?: string
+  expiresAt: string
+}
+
+export interface RecommendationActionResult {
+  recommendationId: string
+  action: RecommendationAction
+  executed: boolean
+  message: string
+  messageKey?: string
+  messageParams?: I18nParams
+  revealResult?: RevealResult
+  cleanupResult?: CleanupResult
 }
 
 export interface ScanProgress {
@@ -331,6 +407,8 @@ export interface MacCleanerApi {
   cancelScan(): Promise<void>
   cleanupPreview(candidateIds: string[], language?: AppLanguage): Promise<CleanupPreview>
   moveToTrash(candidateIds: string[], confirmationId: string, language?: AppLanguage): Promise<CleanupResult>
+  previewRecommendationAction(recommendationId: string, language?: AppLanguage): Promise<RecommendationActionPreview>
+  runRecommendationAction(recommendationId: string, confirmationId: string, language?: AppLanguage): Promise<RecommendationActionResult>
   revealPath(pathToken: string): Promise<RevealResult>
   openFullDiskAccessSettings(): Promise<RevealResult>
   checkForLocalUpdate(language?: AppLanguage): Promise<LocalUpdateStatus>

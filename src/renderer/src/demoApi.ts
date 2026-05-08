@@ -271,6 +271,90 @@ export const demoSummary: ScanSummary = {
       lastModified: now
     })
   ],
+  recommendations: [
+    {
+      id: 'demo-rec-git',
+      scanId: demoScanId,
+      kind: 'git-garbage',
+      risk: 'confirm',
+      recommendedAction: 'run-safe-tool',
+      canExecute: false,
+      title: t('zh-CN', 'recommendation.gitGarbage.title', { repoName: 'worldquant-alpha' }),
+      titleKey: 'recommendation.gitGarbage.title',
+      titleParams: { repoName: 'worldquant-alpha' },
+      sizeBytes: 31_707_381_760,
+      itemCount: 2_292,
+      pathCount: 2_292,
+      pathPreview: '~/worldquant-alpha/.git/objects',
+      pathSamples: ['~/worldquant-alpha/.git/objects/pack/tmp_pack_demo'],
+      pathToken: 'demo-rec-git-token',
+      priorityScore: 2_131_707_381_760,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'recommendation.gitGarbage.reason', { tempCount: 2292 }),
+      reasonKey: 'recommendation.gitGarbage.reason',
+      reasonParams: { tempCount: 2292 },
+      recommendation: t('zh-CN', 'recommendation.gitGarbage.recommendation'),
+      recommendationKey: 'recommendation.gitGarbage.recommendation',
+      actionLabel: t('zh-CN', 'recommendation.gitGarbage.action'),
+      actionLabelKey: 'recommendation.gitGarbage.action',
+      explanation: makeDemoExplanation('zh-CN', 'recommendation.gitGarbage.explanation', { repoName: 'worldquant-alpha', tempCount: 2292, size: '29.5 GB' }),
+      lastModified: now
+    },
+    {
+      id: 'demo-rec-xcode-dyld',
+      scanId: demoScanId,
+      kind: 'xcode-simulator-cache',
+      risk: 'safe',
+      recommendedAction: 'open-owner-app',
+      canExecute: false,
+      title: t('zh-CN', 'recommendation.xcodeDyld.title'),
+      titleKey: 'recommendation.xcodeDyld.title',
+      sizeBytes: 7_087_001_600,
+      itemCount: 812,
+      pathCount: 812,
+      pathPreview: '/Library/Developer/CoreSimulator/Caches/dyld',
+      pathSamples: ['/Library/Developer/CoreSimulator/Caches/dyld'],
+      pathToken: 'demo-rec-xcode-dyld-token',
+      priorityScore: 3_007_087_001_600,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'recommendation.xcodeDyld.reason', { size: '6.6 GB' }),
+      reasonKey: 'recommendation.xcodeDyld.reason',
+      reasonParams: { size: '6.6 GB' },
+      recommendation: t('zh-CN', 'recommendation.xcodeDyld.recommendation'),
+      recommendationKey: 'recommendation.xcodeDyld.recommendation',
+      actionLabel: t('zh-CN', 'recommendation.xcodeDyld.action'),
+      actionLabelKey: 'recommendation.xcodeDyld.action',
+      explanation: makeDemoExplanation('zh-CN', 'recommendation.xcodeDyld.explanation', { size: '6.6 GB' }),
+      lastModified: now
+    },
+    {
+      id: 'demo-rec-codex-sessions',
+      scanId: demoScanId,
+      kind: 'codex-history',
+      risk: 'confirm',
+      recommendedAction: 'reveal-only',
+      canExecute: false,
+      title: t('zh-CN', 'recommendation.codexSessions.title'),
+      titleKey: 'recommendation.codexSessions.title',
+      sizeBytes: 7_945_680_896,
+      itemCount: 320,
+      pathCount: 320,
+      pathPreview: '~/.codex/sessions',
+      pathSamples: ['~/.codex/sessions'],
+      pathToken: 'demo-rec-codex-sessions-token',
+      priorityScore: 2_007_945_680_896,
+      estimateSource: 'filesystem-walk',
+      reason: t('zh-CN', 'recommendation.codexSessions.reason', { size: '7.4 GB' }),
+      reasonKey: 'recommendation.codexSessions.reason',
+      reasonParams: { size: '7.4 GB' },
+      recommendation: t('zh-CN', 'recommendation.codexSessions.recommendation'),
+      recommendationKey: 'recommendation.codexSessions.recommendation',
+      actionLabel: t('zh-CN', 'recommendation.codexSessions.action'),
+      actionLabelKey: 'recommendation.codexSessions.action',
+      explanation: makeDemoExplanation('zh-CN', 'recommendation.codexSessions.explanation', { size: '7.4 GB' }),
+      lastModified: now
+    }
+  ],
   insights: [
     {
       id: 'demo-insight-applications',
@@ -441,6 +525,45 @@ export function createDemoApi(): MacCleanerApi {
         needsRescan: true
       }
     },
+    async previewRecommendationAction(recommendationId: string, language: AppLanguage = 'zh-CN') {
+      const recommendation = demoSummary.recommendations.find((item) => item.id === recommendationId) ?? demoSummary.recommendations[0]
+      return {
+        recommendationId: recommendation.id,
+        confirmationId: 'demo-recommendation-confirm',
+        scanId: demoSummary.scanId,
+        title: recommendation.title,
+        titleKey: recommendation.titleKey,
+        titleParams: recommendation.titleParams,
+        action: recommendation.recommendedAction,
+        canExecute: recommendation.canExecute,
+        totalBytes: recommendation.sizeBytes,
+        pathCount: recommendation.pathCount,
+        pathSamples: recommendation.pathSamples,
+        actionLabel: recommendation.actionLabel,
+        actionLabelKey: recommendation.actionLabelKey,
+        actionLabelParams: recommendation.actionLabelParams,
+        explanation: recommendation.explanation,
+        warning: t(language, recommendation.canExecute ? 'recommendation.preview.executeWarning' : 'recommendation.preview.readOnlyWarning'),
+        warningKey: recommendation.canExecute ? 'recommendation.preview.executeWarning' : 'recommendation.preview.readOnlyWarning',
+        expiresAt: new Date(Date.now() + 300_000).toISOString()
+      }
+    },
+    async runRecommendationAction(recommendationId: string) {
+      return {
+        recommendationId,
+        action: 'reveal-only',
+        executed: false,
+        message: t('zh-CN', 'recommendation.result.readOnly'),
+        messageKey: 'recommendation.result.readOnly',
+        revealResult: {
+          ok: true,
+          targetKind: 'directory',
+          method: 'open-path',
+          message: t('zh-CN', 'main.revealOpenedDirectory'),
+          messageKey: 'main.revealOpenedDirectory'
+        } as const
+      }
+    },
     async revealPath() {
       return {
         ok: true,
@@ -463,8 +586,8 @@ export function createDemoApi(): MacCleanerApi {
       return {
         state: 'current',
         updateAvailable: false,
-        currentVersion: '0.9.2',
-        latestVersion: '0.9.2',
+        currentVersion: '0.10.0',
+        latestVersion: '0.10.0',
         repoPath: demoUpdateConfig.repoPath,
         installTarget: demoUpdateConfig.installTarget,
         currentBranch: 'codex/reliability-upgrades',
@@ -488,8 +611,8 @@ export function createDemoApi(): MacCleanerApi {
       )
       return {
         updated: false,
-        previousVersion: '0.9.2',
-        currentVersion: '0.9.2',
+        previousVersion: '0.10.0',
+        currentVersion: '0.10.0',
         installedPath: demoUpdateConfig.installTarget,
         needsRelaunch: false,
         message: t(language, 'localUpdate.result.noUpdate'),

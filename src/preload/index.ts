@@ -8,6 +8,10 @@ const api: MacCleanerApi = {
     ipcRenderer.invoke('mac-cleaner:cleanup-preview', validateCandidateIds(candidateIds), validateLanguage(language)),
   moveToTrash: (candidateIds: string[], confirmationId: string, language?: AppLanguage) =>
     ipcRenderer.invoke('mac-cleaner:move-to-trash', validateCandidateIds(candidateIds), validateString(confirmationId), validateLanguage(language)),
+  previewRecommendationAction: (recommendationId: string, language?: AppLanguage) =>
+    ipcRenderer.invoke('mac-cleaner:recommendation-preview', validateString(recommendationId), validateLanguage(language)),
+  runRecommendationAction: (recommendationId: string, confirmationId: string, language?: AppLanguage) =>
+    ipcRenderer.invoke('mac-cleaner:recommendation-run', validateString(recommendationId), validateString(confirmationId), validateLanguage(language)),
   revealPath: (pathToken: string) => ipcRenderer.invoke('mac-cleaner:reveal-path', validateString(pathToken)),
   openFullDiskAccessSettings: () => ipcRenderer.invoke('mac-cleaner:open-full-disk-access-settings'),
   checkForLocalUpdate: (language?: AppLanguage) => ipcRenderer.invoke('mac-cleaner:check-local-update', validateLanguage(language)),
