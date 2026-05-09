@@ -25,6 +25,10 @@ import type {
   StorageRecommendationKind,
   StorageRecommendationRisk,
   RecommendationAction,
+  RecommendationConfidence,
+  RecommendationDecision,
+  ScanBrief,
+  TrustEvidenceItem,
   TrashSummary
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
@@ -138,6 +142,11 @@ interface RecommendationScanResult {
   recommendations: StorageRecommendation[]
   pathTokens: Map<string, string>
 }
+
+type RecommendationWithoutAdvisory = Omit<
+  StorageRecommendation,
+  'confidence' | 'decision' | 'evidence' | 'doNotTouch' | 'advisorSummary' | 'advisorSummaryKey' | 'advisorSummaryParams'
+>
 
 const makeCategories = (): CategoryDefinition[] => [
   {
@@ -365,6 +374,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   const totalCleanableBytes = publicCandidates
     .filter((candidate) => candidate.canClean)
     .reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
+  const brief = buildScanBrief(disk, publicCandidates, recommendationScan.recommendations, language)
 
   options.onProgress?.({
     scanId,
@@ -383,6 +393,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       homeDir,
       disk,
       totalCleanableBytes,
+      brief,
       categories,
       candidates: publicCandidates,
       recommendations: recommendationScan.recommendations,
@@ -957,7 +968,7 @@ function makeRecommendationFromCandidate(candidate: CleanupCandidate, language: 
     categoryName: candidate.categoryName,
     size: formatBytesForMessage(candidate.sizeBytes)
   }
-  return {
+  return attachRecommendationAdvisory({
     id: stableId('recommendation-candidate', candidate.id),
     scanId: candidate.scanId,
     kind: candidate.kind === 'developer-cache' ? 'xcode-simulator-cache' : 'manual-review',
@@ -984,12 +995,12 @@ function makeRecommendationFromCandidate(candidate: CleanupCandidate, language: 
     actionLabelKey: candidate.actionLabelKey,
     explanation: candidate.explanation,
     lastModified: candidate.lastModified
-  }
+  }, language)
 }
 
 function makeRecommendationFromInsight(insight: StorageInsight, language: AppLanguage): StorageRecommendation {
   const params = { name: insight.title, size: formatBytesForMessage(insight.sizeBytes) }
-  return {
+  return attachRecommendationAdvisory({
     id: stableId('recommendation-large-app', insight.id),
     scanId: insight.scanId,
     kind: 'large-app',
@@ -1015,7 +1026,7 @@ function makeRecommendationFromInsight(insight: StorageInsight, language: AppLan
     actionLabelKey: 'recommendation.largeApp.action',
     explanation: makeHumanExplanation(language, 'recommendation.largeApp.explanation', params),
     lastModified: insight.lastModified
-  }
+  }, language)
 }
 
 function makeMeasuredRecommendation({
@@ -1050,7 +1061,7 @@ function makeMeasuredRecommendation({
   params: Record<string, string | number>
 }): StorageRecommendation {
   const pathToken = crypto.randomUUID()
-  return {
+  return attachRecommendationAdvisory({
     id: stableId(`recommendation-${kind}`, targetPath),
     scanId: ctx.scanId,
     kind,
@@ -1079,7 +1090,7 @@ function makeMeasuredRecommendation({
     actionLabelParams: params,
     explanation: makeHumanExplanation(ctx.language, explanationKeyBase, params),
     lastModified: measured.lastModified?.toISOString()
-  }
+  }, ctx.language)
 }
 
 function recommendationPriority(
@@ -1090,6 +1101,210 @@ function recommendationPriority(
   const riskWeight = risk === 'safe' ? 3_000_000_000_000 : risk === 'confirm' ? 2_000_000_000_000 : 1_000_000_000_000
   const actionWeight = action === 'move-to-trash' ? 200_000_000_000 : action === 'run-safe-tool' ? 100_000_000_000 : 0
   return riskWeight + actionWeight + sizeBytes
+}
+
+function attachRecommendationAdvisory(
+  recommendation: RecommendationWithoutAdvisory,
+  language: AppLanguage
+): StorageRecommendation {
+  const decision = classifyRecommendationDecision(recommendation)
+  const confidence = classifyRecommendationConfidence(recommendation, decision)
+  const params = recommendationAdvisoryParams(recommendation, language)
+  const advisorSummaryKey = `advisor.summary.${decision}`
+  return {
+    ...recommendation,
+    confidence,
+    decision,
+    evidence: buildRecommendationEvidence(recommendation, decision, language, params),
+    doNotTouch: buildRecommendationExclusions(recommendation, decision, language, params),
+    advisorSummary: t(language, advisorSummaryKey, params),
+    advisorSummaryKey,
+    advisorSummaryParams: params
+  }
+}
+
+function classifyRecommendationDecision(recommendation: RecommendationWithoutAdvisory): RecommendationDecision {
+  if (recommendation.canExecute && recommendation.recommendedAction === 'move-to-trash' && recommendation.risk === 'safe') {
+    return 'recommended-cleanup'
+  }
+  if (
+    recommendation.risk === 'manual-only' ||
+    recommendation.kind === 'large-app' ||
+    recommendation.recommendationKey === 'recommendation.homebrewCellar.recommendation'
+  ) {
+    return 'do-not-delete'
+  }
+  if (recommendation.recommendedAction === 'run-safe-tool' || recommendation.recommendedAction === 'open-owner-app') {
+    return 'manual-tool'
+  }
+  if (recommendation.risk === 'confirm') {
+    return 'review-first'
+  }
+  return 'manual-tool'
+}
+
+function classifyRecommendationConfidence(
+  recommendation: RecommendationWithoutAdvisory,
+  decision: RecommendationDecision
+): RecommendationConfidence {
+  if (decision === 'recommended-cleanup' || decision === 'do-not-delete') return 'high'
+  if (recommendation.estimateSource === 'partial-filesystem-walk') return 'low'
+  return 'medium'
+}
+
+function recommendationAdvisoryParams(
+  recommendation: RecommendationWithoutAdvisory,
+  language: AppLanguage
+): Record<string, string | number> {
+  return {
+    title: recommendation.titleKey ? t(language, recommendation.titleKey, recommendation.titleParams) : recommendation.title,
+    size: formatBytesForMessage(recommendation.sizeBytes),
+    path: recommendation.pathPreview,
+    action: recommendation.actionLabelKey ? t(language, recommendation.actionLabelKey, recommendation.actionLabelParams) : recommendation.actionLabel
+  }
+}
+
+function buildRecommendationEvidence(
+  recommendation: RecommendationWithoutAdvisory,
+  decision: RecommendationDecision,
+  language: AppLanguage,
+  params: Record<string, string | number>
+): TrustEvidenceItem[] {
+  const evidence: TrustEvidenceItem[] = [
+    advisoryItem(language, 'advisor.evidence.size.label', 'advisor.evidence.size.detail', 'info', params),
+    advisoryItem(language, 'advisor.evidence.snapshot.label', 'advisor.evidence.snapshot.detail', 'safe', params)
+  ]
+
+  if (decision === 'recommended-cleanup' || recommendation.recommendedAction === 'move-to-trash') {
+    evidence.push(advisoryItem(language, 'advisor.evidence.safeCatalog.label', 'advisor.evidence.safeCatalog.detail', 'safe', params))
+  } else if (decision === 'do-not-delete') {
+    evidence.push(advisoryItem(language, 'advisor.evidence.manualOnly.label', 'advisor.evidence.manualOnly.detail', 'blocked', params))
+  } else {
+    evidence.push(advisoryItem(language, 'advisor.evidence.knownPattern.label', 'advisor.evidence.knownPattern.detail', 'confirm', params))
+  }
+
+  evidence.push(advisoryItem(language, 'advisor.evidence.action.label', 'advisor.evidence.action.detail', recommendation.canExecute ? 'safe' : 'info', params))
+  return evidence
+}
+
+function buildRecommendationExclusions(
+  recommendation: RecommendationWithoutAdvisory,
+  decision: RecommendationDecision,
+  language: AppLanguage,
+  params: Record<string, string | number>
+): TrustEvidenceItem[] {
+  const exclusions: TrustEvidenceItem[] = [
+    advisoryItem(language, 'advisor.exclusion.noArbitrary.label', 'advisor.exclusion.noArbitrary.detail', 'blocked', params)
+  ]
+
+  if (recommendation.canExecute) {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.noPermanent.label', 'advisor.exclusion.noPermanent.detail', 'blocked', params))
+  } else {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.noAutoAction.label', 'advisor.exclusion.noAutoAction.detail', 'blocked', params))
+  }
+
+  if (recommendation.kind === 'git-garbage') {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.gitRoot.label', 'advisor.exclusion.gitRoot.detail', 'blocked', params))
+  } else if (recommendation.kind === 'large-app') {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.appBundle.label', 'advisor.exclusion.appBundle.detail', 'blocked', params))
+  } else if (recommendation.kind === 'codex-worktree') {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.worktree.label', 'advisor.exclusion.worktree.detail', 'blocked', params))
+  } else if (decision === 'do-not-delete') {
+    exclusions.push(advisoryItem(language, 'advisor.exclusion.importantData.label', 'advisor.exclusion.importantData.detail', 'blocked', params))
+  }
+
+  return exclusions
+}
+
+function advisoryItem(
+  language: AppLanguage,
+  labelKey: string,
+  detailKey: string,
+  tone: TrustEvidenceItem['tone'],
+  params: Record<string, string | number>
+): TrustEvidenceItem {
+  return {
+    label: t(language, labelKey, params),
+    labelKey,
+    labelParams: params,
+    detail: t(language, detailKey, params),
+    detailKey,
+    detailParams: params,
+    tone
+  }
+}
+
+function buildScanBrief(
+  disk: ScanSummary['disk'],
+  candidates: CleanupCandidate[],
+  recommendations: StorageRecommendation[],
+  language: AppLanguage
+): ScanBrief {
+  const availableRatio = disk.totalBytes > 0 ? disk.availableBytes / disk.totalBytes : 1
+  const urgency: ScanBrief['urgency'] =
+    disk.availableBytes < 10 * 1024 ** 3 || availableRatio < 0.08
+      ? 'critical'
+      : disk.availableBytes < 25 * 1024 ** 3 || availableRatio < 0.15
+        ? 'low-space'
+        : 'healthy'
+  const safeBytes = candidates
+    .filter((candidate) => candidate.canClean && candidate.safety === 'safe')
+    .reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
+  const confirmBytes = candidates
+    .filter((candidate) => candidate.canClean && candidate.safety === 'confirm')
+    .reduce((sum, candidate) => sum + candidate.sizeBytes, 0)
+  const manualBytes = recommendations
+    .filter((recommendation) => recommendation.decision === 'manual-tool' || recommendation.decision === 'review-first')
+    .reduce((sum, recommendation) => sum + recommendation.sizeBytes, 0)
+  const blockedBytes = recommendations
+    .filter((recommendation) => recommendation.decision === 'do-not-delete')
+    .reduce((sum, recommendation) => sum + recommendation.sizeBytes, 0)
+  const summaryParams = {
+    available: formatBytesForMessage(disk.availableBytes),
+    used: formatBytesForMessage(disk.usedBytes),
+    total: formatBytesForMessage(disk.totalBytes),
+    usedPercent: disk.totalBytes > 0 ? Math.round((disk.usedBytes / disk.totalBytes) * 100) : 0,
+    safe: formatBytesForMessage(safeBytes),
+    confirm: formatBytesForMessage(confirmBytes),
+    topCount: Math.min(10, recommendations.length)
+  }
+  const nextStepKey = safeBytes > 0
+    ? 'scanBrief.nextStep.safe'
+    : recommendations.length > 0
+      ? 'scanBrief.nextStep.review'
+      : 'scanBrief.nextStep.empty'
+
+  return {
+    urgency,
+    summary: t(language, `scanBrief.summary.${urgency}`, summaryParams),
+    summaryKey: `scanBrief.summary.${urgency}`,
+    summaryParams,
+    nextStep: t(language, nextStepKey, summaryParams),
+    nextStepKey,
+    nextStepParams: summaryParams,
+    topRecommendationIds: recommendations.slice(0, 10).map((recommendation) => recommendation.id),
+    safeBytes,
+    confirmBytes,
+    manualBytes,
+    blockedBytes,
+    buckets: (['recommended-cleanup', 'review-first', 'manual-tool', 'do-not-delete'] as const).map((kind) => {
+      const bucketRecommendations = recommendations.filter((recommendation) => recommendation.decision === kind)
+      const params = {
+        count: bucketRecommendations.length,
+        bytes: formatBytesForMessage(bucketRecommendations.reduce((sum, recommendation) => sum + recommendation.sizeBytes, 0))
+      }
+      return {
+        kind,
+        title: t(language, `scanBrief.bucket.${kind}.title`, params),
+        titleKey: `scanBrief.bucket.${kind}.title`,
+        description: t(language, `scanBrief.bucket.${kind}.description`, params),
+        descriptionKey: `scanBrief.bucket.${kind}.description`,
+        count: bucketRecommendations.length,
+        totalBytes: bucketRecommendations.reduce((sum, recommendation) => sum + recommendation.sizeBytes, 0),
+        recommendationIds: bucketRecommendations.map((recommendation) => recommendation.id)
+      }
+    })
+  }
 }
 
 async function discoverInsightsForRoot(

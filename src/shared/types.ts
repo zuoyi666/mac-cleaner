@@ -23,6 +23,10 @@ export type StorageRecommendationKind =
   | 'manual-review'
 export type StorageRecommendationRisk = 'safe' | 'confirm' | 'manual-only'
 export type RecommendationAction = 'move-to-trash' | 'run-safe-tool' | 'open-owner-app' | 'reveal-only'
+export type RecommendationConfidence = 'high' | 'medium' | 'low'
+export type RecommendationDecision = 'recommended-cleanup' | 'review-first' | 'manual-tool' | 'do-not-delete'
+export type ScanUrgency = 'healthy' | 'low-space' | 'critical'
+export type ScanBriefBucketKind = 'recommended-cleanup' | 'review-first' | 'manual-tool' | 'do-not-delete'
 export type FullDiskAccessStatus = 'unknown' | 'likely-granted' | 'likely-missing'
 export type StorageInsightKind =
   | 'directory'
@@ -228,6 +232,13 @@ export interface StorageRecommendation {
   pathToken?: string
   candidateIds?: string[]
   priorityScore: number
+  confidence: RecommendationConfidence
+  decision: RecommendationDecision
+  evidence: TrustEvidenceItem[]
+  doNotTouch: TrustEvidenceItem[]
+  advisorSummary: string
+  advisorSummaryKey?: string
+  advisorSummaryParams?: I18nParams
   estimateSource: EstimateSource
   reason: string
   reasonKey?: string
@@ -240,6 +251,33 @@ export interface StorageRecommendation {
   actionLabelParams?: I18nParams
   explanation: HumanExplanation
   lastModified?: string
+}
+
+export interface ScanBriefBucket {
+  kind: ScanBriefBucketKind
+  title: string
+  titleKey?: string
+  description: string
+  descriptionKey?: string
+  count: number
+  totalBytes: number
+  recommendationIds: string[]
+}
+
+export interface ScanBrief {
+  urgency: ScanUrgency
+  summary: string
+  summaryKey?: string
+  summaryParams?: I18nParams
+  nextStep: string
+  nextStepKey?: string
+  nextStepParams?: I18nParams
+  topRecommendationIds: string[]
+  safeBytes: number
+  confirmBytes: number
+  manualBytes: number
+  blockedBytes: number
+  buckets: ScanBriefBucket[]
 }
 
 export interface TrashSummary {
@@ -261,6 +299,7 @@ export interface ScanSummary {
   homeDir: string
   disk: DiskSummary
   totalCleanableBytes: number
+  brief: ScanBrief
   categories: CategorySummary[]
   candidates: CleanupCandidate[]
   recommendations: StorageRecommendation[]

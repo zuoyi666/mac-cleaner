@@ -213,11 +213,30 @@ describe('scanStorage', () => {
     expect(git?.pathPreview).toBe('~/worldquant-alpha/.git/objects')
     expect(git?.recommendedAction).toBe('run-safe-tool')
     expect(git?.canExecute).toBe(false)
+    expect(git?.decision).toBe('manual-tool')
+    expect(git?.confidence).toBe('medium')
+    expect(git?.evidence.some((item) => item.labelKey === 'advisor.evidence.knownPattern.label')).toBe(true)
+    expect(git?.doNotTouch.some((item) => item.labelKey === 'advisor.exclusion.gitRoot.label')).toBe(true)
     expect(git?.explanation.cleanability).toContain('不要用清理工具直接删整个 .git')
     expect(xcode?.recommendationKey).toBe('recommendation.xctestDevices.recommendation')
     expect(codex?.explanation.afterAction).toContain('旧对话')
+    expect(['healthy', 'low-space', 'critical']).toContain(run.summary.brief.urgency)
+    expect(run.summary.brief.summaryKey).toBe(`scanBrief.summary.${run.summary.brief.urgency}`)
+    expect(run.summary.brief.topRecommendationIds).toContain(git?.id)
+    expect(run.summary.brief.buckets.find((bucket) => bucket.kind === 'manual-tool')?.recommendationIds).toContain(git?.id)
     expect(run.summary.recommendations[0]?.priorityScore).toBeGreaterThanOrEqual(run.summary.recommendations[1]?.priorityScore ?? 0)
     expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('.git'))).toBe(false)
+  })
+
+  it('keeps ordinary large user content out of automatic cleanup', async () => {
+    const homeDir = await makeHome()
+    await writeSparseFile(path.join(homeDir, 'Documents', 'family-archive.mov'), 600 * 1024 * 1024)
+
+    const run = await scanStorage({ homeDir, now: fixedNow, mode: 'comprehensive' })
+
+    expect(run.summary.candidates.some((candidate) => candidate.pathPreview.includes('family-archive.mov'))).toBe(false)
+    expect(run.summary.insights.some((insight) => insight.pathPreview.includes('Documents'))).toBe(true)
+    expect(run.summary.recommendations.every((recommendation) => recommendation.pathPreview !== '~/Documents/family-archive.mov')).toBe(true)
   })
 })
 

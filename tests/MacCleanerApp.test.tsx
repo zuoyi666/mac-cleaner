@@ -179,9 +179,14 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={api} initialSummary={null} />)
 
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
+    expect(await screen.findByText('扫描总结')).toBeInTheDocument()
+    expect(screen.getAllByText('空间健康').length).toBeGreaterThan(0)
+    expect(screen.getByText('处理分组')).toBeInTheDocument()
+    expect(screen.getByText('判断依据')).toBeInTheDocument()
+    expect(screen.getByText('我明确不会碰')).toBeInTheDocument()
     expect(await screen.findAllByText('高价值发现')).not.toHaveLength(0)
     expect(screen.getAllByText(/Git 临时垃圾/)).not.toHaveLength(0)
-    expect(screen.getAllByText(/先别删整个仓库/)).not.toHaveLength(0)
+    expect(screen.getAllByText(/不删除整个 \.git/)).not.toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: /安心清理/ }))
     expect(await screen.findAllByText('我建议清理')).not.toHaveLength(0)

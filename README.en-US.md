@@ -176,7 +176,7 @@ Signing uses the maintainer's local `Developer ID Application` certificate and A
 
 ## Release Status
 
-`v0.11.0` adds Trust Mode: cleanup buttons no longer lead to a short generic confirmation. They open a trust check with the app's judgment, evidence chain, complete entry paths that will move, explicit out-of-scope areas, recovery guidance, and a “Copy for Codex review” button. The safety boundary is unchanged: scans are read-only by default, ordinary large files and important directories are locate-only, and actual cleanup still requires the fixed safe catalog, a user click, and the trust confirmation before moving anything to Trash. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
+`v0.12.0` adds a Codex-style scan brief: after scanning, Mac Cleaner first explains disk urgency, the highest-value items to handle, and four clear buckets: recommended one-click cleanup, review first, tool/manual handling, and do not one-click delete. Each high-value find now shows confidence, evidence, explicit out-of-scope areas, and plain-language guidance. The safety boundary is unchanged: scans are read-only by default, ordinary large files and important directories are locate-only, and actual cleanup still requires the fixed safe catalog, a user click, and the trust confirmation before moving anything to Trash. GitHub CI runs typecheck, tests, production build, Electron smoke test, audit, and an unsigned Electron packaging dry-run.
 
 ## Maintainer Push Helpers
 
