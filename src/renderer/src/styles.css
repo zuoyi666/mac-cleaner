@@ -884,6 +884,207 @@ h1 {
   padding: 18px;
 }
 
+.scan-brief-panel {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(360px, 0.72fr);
+  gap: 16px;
+  padding: 16px;
+  background:
+    linear-gradient(var(--panel-bg), var(--panel-bg)) padding-box,
+    var(--panel-highlight) border-box;
+  backdrop-filter: blur(18px);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  box-shadow: var(--panel-shadow);
+}
+
+.scan-brief-main,
+.scan-brief-side {
+  min-width: 0;
+}
+
+.scan-brief-main {
+  display: grid;
+  gap: 13px;
+}
+
+.scan-brief-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scan-brief-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.scan-brief-heading span,
+.scan-brief-buckets > span,
+.scan-brief-topfinds > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.scan-brief-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 28px;
+}
+
+.scan-brief-panel p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.urgency-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 16px;
+}
+
+.urgency-pill.healthy {
+  color: var(--safe);
+  background: var(--safe-bg);
+  border: 1px solid var(--safe-line);
+}
+
+.urgency-pill.low-space,
+.urgency-pill.critical {
+  color: var(--confirm);
+  background: var(--confirm-bg);
+  border: 1px solid var(--confirm-line);
+}
+
+.scan-brief-next-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 9px;
+  padding: 12px;
+  color: var(--safe);
+  background: var(--safe-bg);
+  border: 1px solid var(--safe-line);
+  border-radius: 8px;
+}
+
+.scan-brief-next-step strong,
+.scan-brief-next-step span {
+  display: block;
+}
+
+.scan-brief-next-step span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.scan-brief-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scan-brief-metrics > div {
+  display: grid;
+  gap: 4px;
+  min-height: 66px;
+  padding: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.scan-brief-metrics span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 14px;
+}
+
+.scan-brief-metrics strong {
+  font-size: 16px;
+  line-height: 21px;
+}
+
+.scan-brief-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.scan-brief-buckets,
+.scan-brief-topfinds {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scan-brief-bucket,
+.scan-brief-topfinds button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  color: var(--text);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.scan-brief-bucket.recommended-cleanup {
+  border-color: var(--safe-line);
+}
+
+.scan-brief-bucket.review-first,
+.scan-brief-bucket.manual-tool {
+  border-color: var(--confirm-line);
+}
+
+.scan-brief-bucket.do-not-delete {
+  border-color: var(--danger-line);
+}
+
+.scan-brief-bucket strong,
+.scan-brief-topfinds strong {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-brief-bucket span,
+.scan-brief-topfinds span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.scan-brief-topfinds button {
+  cursor: pointer;
+}
+
+.scan-brief-topfinds button:hover {
+  background: var(--row-hover-bg);
+  border-color: var(--line-strong);
+}
+
 .disk-panel {
   display: grid;
   gap: 16px;
@@ -1374,7 +1575,7 @@ h1 {
 
 .result-tabs {
   display: inline-grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   width: fit-content;
   margin: 0 0 12px;
@@ -2202,6 +2403,10 @@ h1 {
   border-radius: 8px;
 }
 
+.inspector > .trust-section {
+  margin-top: 12px;
+}
+
 .trust-section p {
   margin: 0;
   color: var(--muted);
@@ -2350,6 +2555,10 @@ h1 {
     grid-template-columns: minmax(620px, 1fr) 310px;
   }
 
+  .scan-brief-panel {
+    grid-template-columns: 1fr;
+  }
+
   .table-row {
     grid-template-columns: minmax(190px, 1.8fr) 106px 72px minmax(120px, 1fr) 72px;
     gap: 8px;
@@ -2434,6 +2643,12 @@ h1 {
 
   .overview-grid,
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scan-brief-panel,
+  .scan-brief-side,
+  .scan-brief-metrics {
     grid-template-columns: 1fr;
   }
 

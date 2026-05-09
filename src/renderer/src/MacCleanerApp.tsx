@@ -266,6 +266,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
         localizeRecommendationTitle(recommendation, language).toLowerCase().includes(lowerQuery) ||
         recommendation.pathPreview.toLowerCase().includes(lowerQuery) ||
         localizeRecommendationReason(recommendation, language).toLowerCase().includes(lowerQuery) ||
+        localizeRecommendationAdvisorSummary(recommendation, language).toLowerCase().includes(lowerQuery) ||
         localizeRecommendationText(recommendation, language).toLowerCase().includes(lowerQuery)
       )
     })
@@ -876,6 +877,18 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           </div>
         </section>
 
+        {summary?.brief && (
+          <ScanBriefPanel
+            brief={summary.brief}
+            language={language}
+            recommendations={recommendations}
+            onSelectRecommendation={(recommendationId) => {
+              setResultView('recommendations')
+              setSelectedRecommendationId(recommendationId)
+            }}
+          />
+        )}
+
         <section className="content-grid">
           <div className="candidate-panel">
             <div className="result-tabs" role="tablist" aria-label={t(language, 'ui.storageOverview')}>
@@ -1183,6 +1196,86 @@ function MetricCard({
   )
 }
 
+function ScanBriefPanel({
+  brief,
+  language,
+  recommendations,
+  onSelectRecommendation
+}: {
+  brief: ScanSummary['brief']
+  language: AppLanguage
+  recommendations: StorageRecommendation[]
+  onSelectRecommendation: (recommendationId: string) => void
+}): JSX.Element {
+  const topRecommendations = brief.topRecommendationIds
+    .map((recommendationId) => recommendations.find((recommendation) => recommendation.id === recommendationId))
+    .filter((recommendation): recommendation is StorageRecommendation => Boolean(recommendation))
+    .slice(0, 5)
+
+  return (
+    <section className={`scan-brief-panel ${brief.urgency}`} aria-label={t(language, 'ui.scanBriefTitle')}>
+      <div className="scan-brief-main">
+        <div className="scan-brief-heading">
+          <div>
+            <span>{t(language, 'ui.scanBriefTitle')}</span>
+            <h2>{t(language, `ui.scanUrgency.${brief.urgency}`)}</h2>
+          </div>
+          <span className={`urgency-pill ${brief.urgency}`}>
+            <Gauge size={14} />
+            {t(language, `ui.scanUrgency.${brief.urgency}`)}
+          </span>
+        </div>
+        <p>{localizeScanBriefSummary(brief, language)}</p>
+        <div className="scan-brief-next-step">
+          <ShieldCheck size={16} />
+          <div>
+            <strong>{t(language, 'ui.scanBriefNextStep')}</strong>
+            <span>{localizeScanBriefNextStep(brief, language)}</span>
+          </div>
+        </div>
+        <div className="scan-brief-metrics">
+          <div>
+            <span>{t(language, 'ui.scanBriefSafeBytes')}</span>
+            <strong>{formatBytes(brief.safeBytes)}</strong>
+          </div>
+          <div>
+            <span>{t(language, 'ui.scanBriefConfirmBytes')}</span>
+            <strong>{formatBytes(brief.confirmBytes)}</strong>
+          </div>
+          <div>
+            <span>{t(language, 'ui.scanBriefManualBytes')}</span>
+            <strong>{formatBytes(brief.manualBytes)}</strong>
+          </div>
+          <div>
+            <span>{t(language, 'ui.scanBriefBlockedBytes')}</span>
+            <strong>{formatBytes(brief.blockedBytes)}</strong>
+          </div>
+        </div>
+      </div>
+      <div className="scan-brief-side">
+        <div className="scan-brief-buckets">
+          <span>{t(language, 'ui.scanBriefBuckets')}</span>
+          {brief.buckets.map((bucket) => (
+            <div className={`scan-brief-bucket ${bucket.kind}`} key={bucket.kind}>
+              <strong>{localizeScanBriefBucketTitle(bucket, language)}</strong>
+              <span>{localizeScanBriefBucketDescription(bucket, language)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="scan-brief-topfinds">
+          <span>{t(language, 'ui.scanBriefTopFinds')}</span>
+          {topRecommendations.map((recommendation) => (
+            <button key={recommendation.id} type="button" onClick={() => onSelectRecommendation(recommendation.id)}>
+              <strong>{localizeRecommendationTitle(recommendation, language)}</strong>
+              <span>{formatBytes(recommendation.sizeBytes)} · {t(language, `ui.recommendationRisk.${recommendation.risk}`)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function CandidateRow({
   candidate,
   language,
@@ -1399,7 +1492,7 @@ function RecommendationRow({
       </span>
       <span className="size-cell">{formatBytes(recommendation.sizeBytes)}</span>
       <span className="impact-cell">
-        {localizeRecommendationExplanation(recommendation, 'summary', language, localizeRecommendationRecommendation(recommendation, language))}
+        {localizeRecommendationAdvisorSummary(recommendation, language)}
       </span>
       <span className="row-actions">
         <button
@@ -1699,7 +1792,7 @@ function RecommendationInspector({
           <span>{t(language, 'ui.recommendationAction')}</span>
         </div>
         <strong>{localizeRecommendationExplanation(recommendation, 'nextStep', language, localizeRecommendationAction(recommendation, language))}</strong>
-        <p>{localizeRecommendationExplanation(recommendation, 'summary', language, localizeRecommendationRecommendation(recommendation, language))}</p>
+        <p>{localizeRecommendationAdvisorSummary(recommendation, language)}</p>
       </section>
 
       <div className="detail-stack">
@@ -1715,6 +1808,10 @@ function RecommendationInspector({
           <span>{t(language, 'ui.recommendationAction')}</span>
           <strong>{localizeRecommendationAction(recommendation, language)}</strong>
         </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.confidence')}</span>
+          <strong>{t(language, `ui.confidence.${recommendation.confidence}`)}</strong>
+        </div>
       </div>
 
       <section className={`risk-box ${riskClass}`}>
@@ -1724,6 +1821,9 @@ function RecommendationInspector({
         </div>
         <p>{recommendation.canExecute ? localizeRecommendationRecommendation(recommendation, language) : t(language, 'ui.recommendationNotExecutable')}</p>
       </section>
+
+      <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={recommendation.evidence} language={language} />
+      <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={recommendation.doNotTouch} language={language} />
 
       <section className="impact-box">
         <span>{t(language, 'ui.whatThisIs')}</span>
@@ -2116,6 +2216,30 @@ function localizeRecommendationRecommendation(recommendation: StorageRecommendat
 
 function localizeRecommendationAction(recommendation: StorageRecommendation, language: AppLanguage): string {
   return recommendation.actionLabelKey ? t(language, recommendation.actionLabelKey, recommendation.actionLabelParams) : recommendation.actionLabel
+}
+
+function localizeRecommendationAdvisorSummary(recommendation: StorageRecommendation, language: AppLanguage): string {
+  return recommendation.advisorSummaryKey
+    ? t(language, recommendation.advisorSummaryKey, recommendation.advisorSummaryParams)
+    : recommendation.advisorSummary
+}
+
+function localizeScanBriefSummary(brief: ScanSummary['brief'], language: AppLanguage): string {
+  return brief.summaryKey ? t(language, brief.summaryKey, brief.summaryParams) : brief.summary
+}
+
+function localizeScanBriefNextStep(brief: ScanSummary['brief'], language: AppLanguage): string {
+  return brief.nextStepKey ? t(language, brief.nextStepKey, brief.nextStepParams) : brief.nextStep
+}
+
+function localizeScanBriefBucketTitle(bucket: ScanSummary['brief']['buckets'][number], language: AppLanguage): string {
+  return bucket.titleKey ? t(language, bucket.titleKey, { count: bucket.count, bytes: formatBytes(bucket.totalBytes) }) : bucket.title
+}
+
+function localizeScanBriefBucketDescription(bucket: ScanSummary['brief']['buckets'][number], language: AppLanguage): string {
+  return bucket.descriptionKey
+    ? t(language, bucket.descriptionKey, { count: bucket.count.toLocaleString(language), bytes: formatBytes(bucket.totalBytes) })
+    : bucket.description
 }
 
 function localizeCleanupFailure(failure: CleanupFailure, language: AppLanguage): string {

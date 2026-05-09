@@ -12,6 +12,7 @@ import type {
   ScanProgress,
   ScanRequest,
   ScanSummary,
+  StorageRecommendation,
   ThemePreference
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
@@ -30,6 +31,75 @@ export const demoSummary: ScanSummary = {
     availableBytes: 291_221_364_736
   },
   totalCleanableBytes: 25_970_597_888,
+  brief: {
+    urgency: 'healthy',
+    summary: t('zh-CN', 'scanBrief.summary.healthy', {
+      total: '927 GB',
+      usedPercent: 71,
+      available: '271 GB',
+      safe: '18 GB',
+      confirm: '7.8 GB',
+      topCount: 3
+    }),
+    summaryKey: 'scanBrief.summary.healthy',
+    summaryParams: {
+      total: '927 GB',
+      usedPercent: 71,
+      available: '271 GB',
+      safe: '18 GB',
+      confirm: '7.8 GB',
+      topCount: 3
+    },
+    nextStep: t('zh-CN', 'scanBrief.nextStep.safe'),
+    nextStepKey: 'scanBrief.nextStep.safe',
+    topRecommendationIds: ['demo-rec-git', 'demo-rec-xcode-dyld', 'demo-rec-codex-sessions'],
+    safeBytes: 18_005_000_000,
+    confirmBytes: 7_965_597_888,
+    manualBytes: 38_794_383_360,
+    blockedBytes: 0,
+    buckets: [
+      {
+        kind: 'recommended-cleanup',
+        title: t('zh-CN', 'scanBrief.bucket.recommended-cleanup.title'),
+        titleKey: 'scanBrief.bucket.recommended-cleanup.title',
+        description: t('zh-CN', 'scanBrief.bucket.recommended-cleanup.description', { count: 0, bytes: '0 B' }),
+        descriptionKey: 'scanBrief.bucket.recommended-cleanup.description',
+        count: 0,
+        totalBytes: 0,
+        recommendationIds: []
+      },
+      {
+        kind: 'review-first',
+        title: t('zh-CN', 'scanBrief.bucket.review-first.title'),
+        titleKey: 'scanBrief.bucket.review-first.title',
+        description: t('zh-CN', 'scanBrief.bucket.review-first.description', { count: 1, bytes: '7.4 GB' }),
+        descriptionKey: 'scanBrief.bucket.review-first.description',
+        count: 1,
+        totalBytes: 7_945_680_896,
+        recommendationIds: ['demo-rec-codex-sessions']
+      },
+      {
+        kind: 'manual-tool',
+        title: t('zh-CN', 'scanBrief.bucket.manual-tool.title'),
+        titleKey: 'scanBrief.bucket.manual-tool.title',
+        description: t('zh-CN', 'scanBrief.bucket.manual-tool.description', { count: 2, bytes: '36 GB' }),
+        descriptionKey: 'scanBrief.bucket.manual-tool.description',
+        count: 2,
+        totalBytes: 38_794_383_360,
+        recommendationIds: ['demo-rec-git', 'demo-rec-xcode-dyld']
+      },
+      {
+        kind: 'do-not-delete',
+        title: t('zh-CN', 'scanBrief.bucket.do-not-delete.title'),
+        titleKey: 'scanBrief.bucket.do-not-delete.title',
+        description: t('zh-CN', 'scanBrief.bucket.do-not-delete.description', { count: 0, bytes: '0 B' }),
+        descriptionKey: 'scanBrief.bucket.do-not-delete.description',
+        count: 0,
+        totalBytes: 0,
+        recommendationIds: []
+      }
+    ]
+  },
   trash: {
     sizeBytes: 2_110_144_000,
     itemCount: 84,
@@ -290,6 +360,12 @@ export const demoSummary: ScanSummary = {
       pathSamples: ['~/worldquant-alpha/.git/objects/pack/tmp_pack_demo'],
       pathToken: 'demo-rec-git-token',
       priorityScore: 2_131_707_381_760,
+      ...makeDemoRecommendationAdvisory('zh-CN', 'manual-tool', {
+        title: t('zh-CN', 'recommendation.gitGarbage.title', { repoName: 'worldquant-alpha' }),
+        size: '29.5 GB',
+        path: '~/worldquant-alpha/.git/objects',
+        action: t('zh-CN', 'recommendation.gitGarbage.action')
+      }, [['advisor.exclusion.gitRoot.label', 'advisor.exclusion.gitRoot.detail']]),
       estimateSource: 'filesystem-walk',
       reason: t('zh-CN', 'recommendation.gitGarbage.reason', { tempCount: 2292 }),
       reasonKey: 'recommendation.gitGarbage.reason',
@@ -317,6 +393,12 @@ export const demoSummary: ScanSummary = {
       pathSamples: ['/Library/Developer/CoreSimulator/Caches/dyld'],
       pathToken: 'demo-rec-xcode-dyld-token',
       priorityScore: 3_007_087_001_600,
+      ...makeDemoRecommendationAdvisory('zh-CN', 'manual-tool', {
+        title: t('zh-CN', 'recommendation.xcodeDyld.title'),
+        size: '6.6 GB',
+        path: '/Library/Developer/CoreSimulator/Caches/dyld',
+        action: t('zh-CN', 'recommendation.xcodeDyld.action')
+      }),
       estimateSource: 'filesystem-walk',
       reason: t('zh-CN', 'recommendation.xcodeDyld.reason', { size: '6.6 GB' }),
       reasonKey: 'recommendation.xcodeDyld.reason',
@@ -344,6 +426,12 @@ export const demoSummary: ScanSummary = {
       pathSamples: ['~/.codex/sessions'],
       pathToken: 'demo-rec-codex-sessions-token',
       priorityScore: 2_007_945_680_896,
+      ...makeDemoRecommendationAdvisory('zh-CN', 'review-first', {
+        title: t('zh-CN', 'recommendation.codexSessions.title'),
+        size: '7.4 GB',
+        path: '~/.codex/sessions',
+        action: t('zh-CN', 'recommendation.codexSessions.action')
+      }),
       estimateSource: 'filesystem-walk',
       reason: t('zh-CN', 'recommendation.codexSessions.reason', { size: '7.4 GB' }),
       reasonKey: 'recommendation.codexSessions.reason',
@@ -706,6 +794,43 @@ function makeDemoTrustReport(
     recovery: t(language, 'trust.recovery.trash', params),
     recoveryKey: 'trust.recovery.trash',
     recoveryParams: params
+  }
+}
+
+function makeDemoRecommendationAdvisory(
+  language: AppLanguage,
+  decision: StorageRecommendation['decision'],
+  params: Record<string, string | number>,
+  extraExclusions: Array<[string, string]> = []
+): Pick<StorageRecommendation, 'confidence' | 'decision' | 'evidence' | 'doNotTouch' | 'advisorSummary' | 'advisorSummaryKey' | 'advisorSummaryParams'> {
+  const confidence: StorageRecommendation['confidence'] = decision === 'recommended-cleanup' || decision === 'do-not-delete' ? 'high' : 'medium'
+  const advisorSummaryKey = `advisor.summary.${decision}`
+  const item = (labelKey: string, detailKey: string, tone: 'safe' | 'confirm' | 'blocked' | 'info') => ({
+    label: t(language, labelKey, params),
+    labelKey,
+    labelParams: params,
+    detail: t(language, detailKey, params),
+    detailKey,
+    detailParams: params,
+    tone
+  })
+  return {
+    confidence,
+    decision,
+    advisorSummary: t(language, advisorSummaryKey, params),
+    advisorSummaryKey,
+    advisorSummaryParams: params,
+    evidence: [
+      item('advisor.evidence.size.label', 'advisor.evidence.size.detail', 'info'),
+      item('advisor.evidence.snapshot.label', 'advisor.evidence.snapshot.detail', 'safe'),
+      item('advisor.evidence.knownPattern.label', 'advisor.evidence.knownPattern.detail', 'confirm'),
+      item('advisor.evidence.action.label', 'advisor.evidence.action.detail', 'info')
+    ],
+    doNotTouch: [
+      item('advisor.exclusion.noArbitrary.label', 'advisor.exclusion.noArbitrary.detail', 'blocked'),
+      item('advisor.exclusion.noAutoAction.label', 'advisor.exclusion.noAutoAction.detail', 'blocked'),
+      ...extraExclusions.map(([labelKey, detailKey]) => item(labelKey, detailKey, 'blocked'))
+    ]
   }
 }
 
