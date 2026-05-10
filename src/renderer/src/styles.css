@@ -143,7 +143,7 @@ code {
   align-items: center;
   gap: 8px;
   min-height: 38px;
-  padding: 0 10px;
+  padding: 8px 10px;
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
@@ -161,11 +161,9 @@ code {
 
 .nav-item span,
 .nav-item strong {
-  overflow: hidden;
   font-size: 13px;
   line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .nav-item strong {
@@ -371,11 +369,13 @@ h1 {
   justify-content: center;
   gap: 8px;
   min-height: 36px;
-  padding: 0 13px;
+  padding: 8px 13px;
   border-radius: 6px;
   font-size: 13px;
   font-weight: 740;
   line-height: 18px;
+  text-align: center;
+  white-space: normal;
 }
 
 .disk-selector {
@@ -504,11 +504,9 @@ summary:focus-visible,
 }
 
 .plain-summary strong {
-  overflow: hidden;
   font-size: 18px;
   line-height: 24px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .plain-summary p,
@@ -586,10 +584,9 @@ summary:focus-visible,
 }
 
 .issue-group-row code {
-  overflow: hidden;
   color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .permission-note,
@@ -701,7 +698,7 @@ summary:focus-visible,
 }
 
 .compact-action {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .batch-count-pill {
@@ -893,9 +890,8 @@ summary:focus-visible,
 }
 
 .candidate-title-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .candidate-title-copy strong {
@@ -1045,6 +1041,7 @@ summary:focus-visible,
 .safety-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   min-height: 26px;
   padding: 0 8px;
@@ -1052,7 +1049,9 @@ summary:focus-visible,
   border-radius: 999px;
   font-size: 12px;
   font-weight: 760;
-  white-space: nowrap;
+  line-height: 17px;
+  text-align: center;
+  white-space: normal;
 }
 
 .inspector h2 {
@@ -1170,7 +1169,6 @@ summary:focus-visible,
 
 .sample-path-list code,
 .preview-list span {
-  overflow: hidden;
   padding: 7px 8px;
   color: var(--muted);
   background: var(--surface);
@@ -1178,8 +1176,8 @@ summary:focus-visible,
   border-radius: 5px;
   font-size: 11px;
   line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .inspector-actions {
@@ -1251,11 +1249,11 @@ summary:focus-visible,
 
 .map-table .table-row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.4fr) 112px 80px minmax(180px, 1fr) 76px;
-  align-items: center;
+  grid-template-columns: minmax(170px, 1.2fr) minmax(100px, 0.7fr) 72px minmax(150px, 1fr) 60px;
+  align-items: start;
   gap: 10px;
-  min-height: 54px;
-  padding: 0 12px;
+  min-height: 74px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
@@ -1276,9 +1274,8 @@ summary:focus-visible,
 
 .candidate-title strong,
 .candidate-title small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .candidate-title strong {
@@ -1298,6 +1295,7 @@ summary:focus-visible,
   display: grid;
   place-items: center;
   padding: 24px;
+  overflow: hidden;
   background: rgba(20, 20, 18, 0.24);
 }
 
@@ -1314,7 +1312,7 @@ summary:focus-visible,
 }
 
 .trust-modal {
-  width: min(900px, calc(100vw - 40px));
+  width: min(900px, 100%);
 }
 
 .modal-close {
@@ -1468,15 +1466,15 @@ summary:focus-visible,
 
 @media (max-width: 1180px) {
   body {
-    min-width: 980px;
+    min-width: 0;
   }
 
   .app-shell {
-    grid-template-columns: 220px minmax(760px, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
   }
 
   .content-grid {
-    grid-template-columns: minmax(650px, 1fr) 330px;
+    grid-template-columns: 1fr;
   }
 
   .plain-summary {
@@ -1489,6 +1487,10 @@ summary:focus-visible,
 
   .plain-summary > div:nth-child(-n + 2) {
     border-bottom: 1px solid var(--line);
+  }
+
+  .inspector {
+    margin-top: 14px;
   }
 }
 
@@ -1569,9 +1571,29 @@ summary:focus-visible,
     min-height: 420px;
   }
 
-  .checklist-sections,
-  .plain-table {
-    overflow-x: auto;
+  .plain-table-head {
+    display: none;
+  }
+
+  .plain-row,
+  .map-table .table-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .plain-row.selected {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .size-cell,
+  .row-actions {
+    padding-top: 0;
+  }
+
+  .row-actions {
+    justify-content: flex-start;
   }
 
   .inspector {
