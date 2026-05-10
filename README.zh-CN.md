@@ -176,7 +176,7 @@ npm run dist:mac:signed
 
 ## 当前版本
 
-`v0.12.0` 新增 Codex 式扫描总结：扫描后先给出磁盘紧急程度、最值得优先处理的大项、推荐一键清理/先确认/工具或手动处理/不要一键删除四类结论。每条高价值发现都会展示判断信心、证据、明确不会碰的范围和人话解释。安全边界不变：扫描默认只读，普通大文件和重要目录只定位不一键清理，真正清理仍只发生在固定安全 catalog、点击按钮、信任确认之后，并且只移动到废纸篓。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
+`v0.12.1` 修正维护者本机默认源码目录为 `/Users/yizuo/Mac-Cleaner`，匹配当前本地项目名称。`v0.12.0` 新增 Codex 式扫描总结：扫描后先给出磁盘紧急程度、最值得优先处理的大项、推荐一键清理/先确认/工具或手动处理/不要一键删除四类结论。每条高价值发现都会展示判断信心、证据、明确不会碰的范围和人话解释。安全边界不变：扫描默认只读，普通大文件和重要目录只定位不一键清理，真正清理仍只发生在固定安全 catalog、点击按钮、信任确认之后，并且只移动到废纸篓。GitHub CI 会运行 typecheck、tests、production build、Electron smoke test、audit 和 unsigned Electron packaging dry-run。
 
 ## 维护者推送辅助
 
