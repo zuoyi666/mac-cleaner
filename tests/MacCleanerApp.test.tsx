@@ -179,22 +179,20 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={api} initialSummary={null} />)
 
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
-    expect(await screen.findByText('扫描总结')).toBeInTheDocument()
-    expect(screen.getAllByText('空间健康').length).toBeGreaterThan(0)
-    expect(screen.getByText('处理分组')).toBeInTheDocument()
+    expect(await screen.findByText('扫描后先说结论')).toBeInTheDocument()
+    expect(screen.getAllByText('可以放心移到废纸篓').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('先看一眼再说').length).toBeGreaterThan(0)
+    expect(screen.getByText('建议用原工具处理')).toBeInTheDocument()
+    expect(screen.getByText('别一键删')).toBeInTheDocument()
     expect(screen.getByText('判断依据')).toBeInTheDocument()
     expect(screen.getByText('我明确不会碰')).toBeInTheDocument()
-    expect(await screen.findAllByText('高价值发现')).not.toHaveLength(0)
-    expect(screen.getAllByText(/Git 临时垃圾/)).not.toHaveLength(0)
+    await user.click(screen.getAllByText(/Git 临时垃圾/)[0])
     expect(screen.getAllByText(/不删除整个 \.git/)).not.toHaveLength(0)
-
-    await user.click(screen.getByRole('button', { name: /安心清理/ }))
-    expect(await screen.findAllByText('我建议清理')).not.toHaveLength(0)
-    expect(screen.getAllByText('先看说明')).not.toHaveLength(0)
-    expect(screen.getByText('安全清理控制台')).toBeInTheDocument()
-    expect(screen.getByText('我的建议')).toBeInTheDocument()
-    expect(screen.getByText('能不能删')).toBeInTheDocument()
-    expect(screen.getByText('处理后会怎样')).toBeInTheDocument()
+    expect(screen.getByText('本地 · 只读 · 不上传')).toBeInTheDocument()
+    expect(screen.getByText('现在建议怎么做')).toBeInTheDocument()
+    expect(screen.getAllByText('能不能删')).not.toHaveLength(0)
+    expect(screen.getAllByText('删了会怎样')).not.toHaveLength(0)
+    expect(screen.getAllByText('什么时候别删')).not.toHaveLength(0)
     expect(screen.getAllByText(/可重建|开发工具缓存/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
@@ -203,12 +201,12 @@ describe('MacCleanerApp', () => {
 
     await user.click(screen.getByRole('button', { name: `移到废纸篓: ${firstCandidate.title}` }))
     expect(api.cleanupPreview).toHaveBeenCalledWith([firstCandidate.id], 'zh-CN')
-    expect(await screen.findByRole('dialog', { name: /清理前信任确认/ })).toBeInTheDocument()
-    expect(screen.getByText('只移动到废纸篓')).toBeInTheDocument()
-    expect(screen.getByText('为什么我认为可以这样处理')).toBeInTheDocument()
-    expect(screen.getByText('本次将移动的完整入口路径')).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /最后再看一遍/ })).toBeInTheDocument()
+    expect(screen.getByText('这里只会移到废纸篓')).toBeInTheDocument()
+    expect(screen.getByText('为什么我觉得可以这样处理')).toBeInTheDocument()
+    expect(screen.getByText('这次会移到废纸篓的入口路径')).toBeInTheDocument()
     expect(screen.getByText('不会碰清单外路径')).toBeInTheDocument()
-    expect(screen.getAllByText('什么情况先保留').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('什么时候别删').length).toBeGreaterThan(0)
     expect(screen.getAllByText('扫描内项目数').length).toBeGreaterThan(0)
     expect(api.moveToTrash).not.toHaveBeenCalled()
 
@@ -216,7 +214,7 @@ describe('MacCleanerApp', () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining(firstCandidate.pathPreview))
     expect(await screen.findByText(/已复制复核报告/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /我已看懂，移到废纸篓/ }))
+    await user.click(screen.getByRole('button', { name: /我看懂了，移到废纸篓/ }))
 
     await waitFor(() => {
       expect(api.moveToTrash).toHaveBeenCalledWith([firstCandidate.id], 'confirm-1', 'zh-CN')
@@ -288,12 +286,37 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
-    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     await user.click(screen.getByRole('button', { name: /选择可清理项/ }))
     await user.click(screen.getByRole('button', { name: /批量确认/ }))
 
     expect(api.cleanupPreview).toHaveBeenCalledWith(expect.arrayContaining(candidates.map((candidate) => candidate.id)), 'zh-CN')
-    expect(await screen.findByRole('dialog', { name: /清理前信任确认/ })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /最后再看一遍/ })).toBeInTheDocument()
+  })
+
+  it('does not repeat a recommendation that points to an already shown cleanup candidate', async () => {
+    const candidate = demoSummary.candidates[0]
+    const duplicateRecommendation = {
+      ...demoSummary.recommendations[0],
+      id: 'duplicate-candidate-recommendation',
+      title: '重复的候选建议',
+      titleKey: undefined,
+      pathPreview: candidate.pathPreview,
+      sizeBytes: candidate.sizeBytes,
+      candidateIds: [candidate.id],
+      decision: 'manual-tool' as const
+    }
+    const summaryWithDuplicateRecommendation: ScanSummary = {
+      ...demoSummary,
+      recommendations: [duplicateRecommendation]
+    }
+
+    render(<MacCleanerApp api={makeApi()} initialSummary={summaryWithDuplicateRecommendation} />)
+
+    expect(await screen.findByText('已是最新')).toBeInTheDocument()
+    expect(screen.getAllByText('Xcode DerivedData')).not.toHaveLength(0)
+    expect(screen.queryByText('重复的候选建议')).not.toBeInTheDocument()
+    expect(screen.getByText('建议用原工具处理')).toBeInTheDocument()
+    expect(screen.getAllByText('这一组暂时没有内容。有内容时会出现在这里，不会藏到别处。')).not.toHaveLength(0)
   })
 
   it('surfaces Finder reveal failures instead of doing a silent no-op', async () => {
@@ -311,7 +334,6 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
-    await user.click(screen.getByRole('button', { name: /安心清理/ }))
     await user.click(screen.getByRole('button', { name: `在 Finder 中显示: ${firstCandidate.title}` }))
 
     expect(api.revealPath).toHaveBeenCalledWith(firstCandidate.pathToken)
@@ -377,6 +399,7 @@ describe('MacCleanerApp', () => {
         }
       ],
       candidates: [blockedCandidate],
+      recommendations: [],
       issues: [
         {
           id: 'blocked-issue',
@@ -392,8 +415,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={blockedSummary} />)
     await screen.findByText('已是最新')
 
-    await user.click(screen.getByRole('button', { name: /安心清理/ }))
-    expect(screen.getAllByText('不要一键删')).not.toHaveLength(0)
+    expect(screen.getAllByText('别一键删')).not.toHaveLength(0)
     expect(screen.getByText('权限与安全边界')).toBeInTheDocument()
     expect(screen.getByText(/不会申请管理员权限/)).toBeInTheDocument()
     expect(screen.getByText(/不会进入自动清理流程/)).toBeInTheDocument()
@@ -515,16 +537,15 @@ describe('MacCleanerApp', () => {
     })
     expect(localStorage.getItem('mac-cleaner-language')).toBe('en-US')
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
-    expect(screen.getAllByText('Recommended Cleanup')).not.toHaveLength(0)
-    expect(screen.getAllByText('Review First')).not.toHaveLength(0)
-    expect(screen.getByText('My recommendation')).toBeInTheDocument()
-    expect(screen.getByText('Can it be removed?')).toBeInTheDocument()
-    expect(screen.getAllByText(/Regeneratable|Developer cache/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Safe to move to Trash')).not.toHaveLength(0)
+    expect(screen.getAllByText('Look first')).not.toHaveLength(0)
+    expect(screen.getByText('What to do now')).toBeInTheDocument()
+    expect(screen.getAllByText('Can it be removed?')).not.toHaveLength(0)
+    expect(screen.getAllByText(/tools like Xcode|Safe to clean/).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: `Move to Trash: ${firstCandidate.title}` }))
 
-    expect(await screen.findByRole('dialog', { name: /Trust Check Before Cleanup/ })).toBeInTheDocument()
-    expect(screen.getByText(/Trash only/)).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /Look one last time/ })).toBeInTheDocument()
+    expect(screen.getByText(/moves items to Trash/)).toBeInTheDocument()
   })
 
   it('uses the installer-provided initial language before legacy localStorage', async () => {
@@ -536,44 +557,30 @@ describe('MacCleanerApp', () => {
 
     expect(await screen.findByText('Up to date')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Scan Storage/ })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Safe Cleanup/ }))
-    expect(screen.getAllByText('Recommended Cleanup')).not.toHaveLength(0)
+    expect(screen.getAllByText('Safe to move to Trash')).not.toHaveLength(0)
   })
 
-  it('shows theme choices and defaults to Aurora Light', async () => {
+  it('hides theme choices and uses the plain light shell', async () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    const themePicker = screen.getByRole('radiogroup', { name: '皮肤主题' })
-
-    expect(themePicker).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.queryByRole('radio', { name: '跟随系统' })).not.toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '黑客终端' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '霓虹夜城' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '日光极简' })).toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: '皮肤主题' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '黑客终端' })).not.toBeInTheDocument()
     expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
 
-  it('switches theme immediately without rescanning or changing selected cleanup state', async () => {
-    const user = userEvent.setup()
+  it('ignores stored theme changes without rescanning or hiding cleanup state', async () => {
     const api = makeApi()
+    localStorage.setItem('mac-cleaner-theme-preference', 'hacker-dark')
 
     render(<MacCleanerApp api={api} initialSummary={demoSummary} />)
 
-    await user.click(screen.getByRole('button', { name: /安心清理/ }))
-    await user.click(screen.getByRole('radio', { name: '黑客终端' }))
-
-    await waitFor(() => {
-      expect(api.setThemePreference).toHaveBeenCalledWith('hacker-dark')
-    })
-    expect(localStorage.getItem('mac-cleaner-theme-preference')).toBe('hacker-dark')
-    expect(document.documentElement.dataset.theme).toBe('hacker-dark')
+    expect(await screen.findByText('已是最新')).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '黑客终端' })).not.toBeInTheDocument()
+    expect(document.documentElement.dataset.theme).toBe('aurora-light')
+    expect(api.setThemePreference).not.toHaveBeenCalled()
     expect(api.scan).not.toHaveBeenCalled()
     expect(screen.getAllByText('Xcode DerivedData')).not.toHaveLength(0)
-
-    await user.click(screen.getByRole('radio', { name: '日光极简' }))
-    expect(document.documentElement.dataset.theme).toBe('solar-minimal')
   })
 
   it('uses the installer-provided initial theme before legacy localStorage', async () => {
@@ -583,8 +590,8 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '霓虹夜城' })).toHaveAttribute('aria-checked', 'true')
-    expect(document.documentElement.dataset.theme).toBe('neon-night')
+    expect(screen.queryByRole('radio', { name: '霓虹夜城' })).not.toBeInTheDocument()
+    expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
 
   it('falls back to Aurora when an old system preference is stored', async () => {
@@ -593,7 +600,7 @@ describe('MacCleanerApp', () => {
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
 
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('radio', { name: '极光浅色' })).not.toBeInTheDocument()
     expect(document.documentElement.dataset.theme).toBe('aurora-light')
   })
 
@@ -601,7 +608,7 @@ describe('MacCleanerApp', () => {
     window.history.replaceState(null, '', '/?initialThemePreference=graphite-pro')
     render(<MacCleanerApp api={makeApi()} initialSummary={demoSummary} />)
     expect(await screen.findByText('已是最新')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '极光浅色' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('radio', { name: '极光浅色' })).not.toBeInTheDocument()
   })
 
   it('does not silently show demo cleanup candidates when the native bridge is missing', async () => {
@@ -618,7 +625,6 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp />)
 
-    await user.click(await screen.findByRole('button', { name: /安心清理/ }))
     expect(await screen.findByText('DesignTool-4.2.1.dmg')).toBeInTheDocument()
     expect(screen.getByText(/浏览器预览模式/)).toBeInTheDocument()
   })

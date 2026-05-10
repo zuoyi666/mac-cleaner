@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties, KeyboardEvent } from 'react'
+import type { KeyboardEvent } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -25,7 +25,6 @@ import {
 } from 'lucide-react'
 import type {
   AppLanguage,
-  CategorySummary,
   CleanupCandidate,
   CleanupFailure,
   CleanupPreview,
@@ -113,6 +112,30 @@ const recommendationRiskClass: Record<StorageRecommendationRisk, string> = {
   'manual-only': 'discouraged'
 }
 
+type ChecklistSectionKind = 'recommended-cleanup' | 'review-first' | 'manual-tool' | 'do-not-delete'
+
+type ChecklistItem =
+  | {
+      id: string
+      source: 'candidate'
+      section: ChecklistSectionKind
+      candidate: CleanupCandidate
+    }
+  | {
+      id: string
+      source: 'recommendation'
+      section: ChecklistSectionKind
+      recommendation: StorageRecommendation
+    }
+
+interface ChecklistSection {
+  kind: ChecklistSectionKind
+  titleKey: string
+  descriptionKey: string
+  items: ChecklistItem[]
+  totalBytes: number
+}
+
 export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.Element {
   const isBrowserPreview = !api && !window.macCleaner && shouldUseDemoPreview()
   const nativeBridgeMissing = !api && !window.macCleaner && !isBrowserPreview
@@ -152,7 +175,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   useEffect(() => macCleaner.onScanProgress(setProgress), [macCleaner])
   useEffect(() => macCleaner.onLocalUpdateProgress(setLocalUpdateProgress), [macCleaner])
 
-  const activeTheme = themePreference
+  const activeTheme = 'aurora-light'
 
   useEffect(() => {
     if (hasInitialThemePreference()) return undefined
@@ -176,7 +199,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   useEffect(() => {
     document.documentElement.dataset.theme = activeTheme
-    document.documentElement.style.colorScheme = isLightTheme(activeTheme) ? 'light' : 'dark'
+    document.documentElement.style.colorScheme = 'light'
   }, [activeTheme])
 
   useEffect(() => {
@@ -281,6 +304,29 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     return filteredRecommendations[0] ?? null
   }, [recommendations, filteredRecommendations, selectedRecommendationId])
 
+  const checklistSections = useMemo(
+    () => buildChecklistSections(candidates, recommendations, query, sortMode, language),
+    [candidates, recommendations, query, sortMode, language]
+  )
+  const checklistItems = useMemo(() => checklistSections.flatMap((section) => section.items), [checklistSections])
+  const [selectedChecklistItemId, setSelectedChecklistItemId] = useState<string | null>(null)
+  const selectedChecklistItem = useMemo(() => {
+    if (selectedChecklistItemId) {
+      const selected = checklistItems.find((item) => item.id === selectedChecklistItemId)
+      if (selected) return selected
+    }
+    return checklistItems[0] ?? null
+  }, [checklistItems, selectedChecklistItemId])
+
+  useEffect(() => {
+    if (!selectedChecklistItemId && checklistItems[0]) {
+      setSelectedChecklistItemId(checklistItems[0].id)
+    }
+    if (selectedChecklistItemId && !checklistItems.some((item) => item.id === selectedChecklistItemId)) {
+      setSelectedChecklistItemId(checklistItems[0]?.id ?? null)
+    }
+  }, [checklistItems, selectedChecklistItemId])
+
   useEffect(() => {
     if (!selectedCandidateId && filteredCandidates[0]) {
       setSelectedCandidateId(filteredCandidates[0].id)
@@ -309,9 +355,18 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   }, [recommendations, filteredRecommendations, selectedRecommendationId])
 
   const totalCandidates = candidates.length
+  const visibleSafeCandidateIds = useMemo(
+    () =>
+      checklistItems.flatMap((item) =>
+        item.source === 'candidate' && item.candidate.canClean && item.candidate.safety === 'safe'
+          ? [item.candidate.id]
+          : []
+      ),
+    [checklistItems]
+  )
   const selectedCleanableIds = useMemo(
-    () => filteredCandidates.filter((candidate) => selectedIds.has(candidate.id) && candidate.canClean).map((candidate) => candidate.id),
-    [filteredCandidates, selectedIds]
+    () => visibleSafeCandidateIds.filter((candidateId) => selectedIds.has(candidateId)),
+    [visibleSafeCandidateIds, selectedIds]
   )
   const usedPercent = summary?.disk.totalBytes
     ? Math.round((summary.disk.usedBytes / summary.disk.totalBytes) * 100)
@@ -331,10 +386,11 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       const nextSummary = await macCleaner.scan({ language, mode: 'comprehensive' })
       setSummary(nextSummary)
       setSelectedCategoryId('all')
-      setResultView('recommendations')
+      setResultView('cleanup')
       setSelectedRecommendationId(nextSummary.recommendations[0]?.id ?? null)
       setSelectedCandidateId(nextSummary.candidates[0]?.id ?? null)
       setSelectedInsightId(nextSummary.insights[0]?.id ?? null)
+      setSelectedChecklistItemId(null)
       setSelectedIds(new Set())
     } catch (scanError) {
       setError(formatError(scanError))
@@ -416,12 +472,9 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
 
   function toggleAllVisible(): void {
     setSelectedIds((current) => {
-      const visibleCleanableIds = filteredCandidates
-        .filter((candidate) => candidate.canClean && candidate.safety === 'safe')
-        .map((candidate) => candidate.id)
-      const allSelected = visibleCleanableIds.every((candidateId) => current.has(candidateId))
+      const allSelected = visibleSafeCandidateIds.every((candidateId) => current.has(candidateId))
       const next = new Set(current)
-      for (const candidateId of visibleCleanableIds) {
+      for (const candidateId of visibleSafeCandidateIds) {
         if (allSelected) next.delete(candidateId)
         else next.add(candidateId)
       }
@@ -581,27 +634,33 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           </div>
         </div>
 
-        <nav className="nav-list" aria-label={t(language, 'ui.cleanupCandidates')}>
+        <nav className="nav-list plain-nav" aria-label={t(language, 'ui.mainNavigation')}>
           <button
-            className={selectedCategoryId === 'all' ? 'nav-item active' : 'nav-item'}
-            onClick={() => setSelectedCategoryId('all')}
+            className={resultView !== 'map' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setResultView('cleanup')}
           >
-            <Archive size={17} />
-            <span>{t(language, 'ui.navAllCandidates')}</span>
-            <strong>{totalCandidates}</strong>
+            <CheckCircle2 size={17} />
+            <span>{t(language, 'ui.navScanCleanup')}</span>
+            <strong>{checklistItems.length}</strong>
           </button>
-          {categories.map((category) => (
-            <CategoryNavItem
-              key={category.id}
-              category={category}
-              language={language}
-              active={selectedCategoryId === category.id}
-              onSelect={() => setSelectedCategoryId(category.id)}
-            />
-          ))}
+          <button
+            className={resultView === 'map' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setResultView('map')}
+          >
+            <FolderOpen size={17} />
+            <span>{t(language, 'ui.navSpaceMap')}</span>
+            <strong>{filteredInsights.length}</strong>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
+          <div className="local-promise-card">
+            <strong>{t(language, 'ui.localPromiseTitle')}</strong>
+            <span><CheckCircle2 size={14} />{t(language, 'ui.localPromiseReadOnly')}</span>
+            <span><CheckCircle2 size={14} />{t(language, 'ui.localPromiseNoUpload')}</span>
+            <span><CheckCircle2 size={14} />{t(language, 'ui.localPromiseTrashOnly')}</span>
+            <span><CheckCircle2 size={14} />{t(language, 'ui.localPromiseNoAuto')}</span>
+          </div>
           <div className="trash-card">
             <Trash2 size={17} />
             <div>
@@ -631,28 +690,6 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 <button className={language === 'en-US' ? 'active' : ''} onClick={() => void changeLanguage('en-US')}>
                   {t(language, 'language.en')}
                 </button>
-              </div>
-            </div>
-            <div className="settings-group">
-              <span>{t(language, 'theme.label')}</span>
-              <div className="theme-swatch-grid" role="radiogroup" aria-label={t(language, 'theme.label')}>
-                {themeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    className={themePreference === option.value ? 'theme-swatch-button active' : 'theme-swatch-button'}
-                    aria-checked={themePreference === option.value}
-                    onClick={() => void changeThemePreference(option.value)}
-                  >
-                    <span className={`theme-dots ${option.swatchClass}`} aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    {t(language, option.labelKey)}
-                  </button>
-                ))}
               </div>
             </div>
             <div className="local-update-box">
@@ -747,179 +784,119 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           </div>
         )}
 
-        <section className="overview-grid" aria-label={t(language, 'ui.storageOverview')}>
-          <div className="overview-panel disk-panel">
-            <div className="dashboard-heading">
-              <div>
-                <span>{t(language, 'ui.controlConsoleTitle')}</span>
-                <strong>{summary?.disk.mountPath ?? 'Macintosh HD'}</strong>
-              </div>
-              <span className="security-chip">
-                <ShieldCheck size={14} />
-                {summary ? t(language, 'ui.safetyReady') : t(language, 'ui.safetyWaiting')}
-              </span>
-            </div>
-            <div className="disk-dashboard-body">
-              <div
-                className="donut"
-                style={{ '--used-percent': `${usedPercent}%` } as CSSProperties}
-                aria-label={t(language, 'ui.diskUsedAria', { percent: usedPercent })}
-              >
-                <span>{usedPercent}%</span>
-                <small>{t(language, 'ui.used')}</small>
-              </div>
-              <div className="disk-copy">
-                <span>{t(language, 'ui.releasable')}</span>
-                <strong>{formatBytes(summary?.totalCleanableBytes ?? 0)}</strong>
-                <p>{t(language, 'ui.diskCopy', { available: formatBytes(summary?.disk.availableBytes ?? 0) })}</p>
-                <div className="safety-meter" aria-label={t(language, 'ui.safeVsConfirmAria')}>
-                  <div className="meter-line">
-                    <i className="safe" style={{ width: `${safeCleanablePercent}%` }} />
-                    <i className="confirm" style={{ width: `${confirmCleanablePercent}%` }} />
-                  </div>
-                  <span>
-                    {t(language, 'ui.safeCandidateBytes', { bytes: formatBytes(cleanableStats.safeBytes) })} ·{' '}
-                    {t(language, 'ui.confirmCandidateBytes', { bytes: formatBytes(cleanableStats.confirmBytes) })}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="metric-grid">
-              <MetricCard icon={HardDrive} label={t(language, 'ui.metricDisk')} value={summary?.disk.mountPath ?? 'Macintosh HD'} tone="accent" />
-              <MetricCard icon={ShieldCheck} label={t(language, 'ui.metricSafety')} value={summary ? t(language, 'ui.safetyReady') : t(language, 'ui.safetyWaiting')} tone="safe" />
-              <MetricCard icon={Clock3} label={t(language, 'ui.metricLastScan')} value={summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')} tone="muted" />
-            </div>
+        <section className="plain-summary" aria-label={t(language, 'ui.storageOverview')}>
+          <div>
+            <span>{t(language, 'ui.summaryDisk')}</span>
+            <strong>{summary?.disk.mountPath ?? 'Macintosh HD'}</strong>
+            <p>
+              {summary
+                ? t(language, 'ui.summaryDiskUsage', {
+                    total: formatBytes(summary.disk.totalBytes),
+                    used: formatBytes(summary.disk.usedBytes),
+                    usedPercent,
+                    available: formatBytes(summary.disk.availableBytes)
+                  })
+                : t(language, 'ui.notScanned')}
+            </p>
           </div>
-
-          <div className="overview-panel progress-panel">
-            <div className="panel-heading">
-              <span>{t(language, 'ui.scanStatus')}</span>
-              <strong>{summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')}</strong>
-            </div>
-            <div className="scan-status">
-              <div className={isScanning ? 'pulse-dot active' : 'pulse-dot'} />
-              <div>
-                <strong>{localizeProgress(progress, language) ?? t(language, 'ui.startScanHint')}</strong>
-                <span>
-                  {progress?.currentPath ?? t(language, 'ui.noMutationHint')}
-                  {progress?.percent !== undefined ? ` · ${progress.percent}%` : ''}
-                </span>
-              </div>
-            </div>
-            {summary?.coverage && (
-              <div className="coverage-console" aria-label={t(language, 'ui.scanCoverageTitle')}>
-                <MetricCard icon={Gauge} label={t(language, 'ui.metricScannedRoots')} value={summary.coverage.scannedRootCount.toLocaleString(language)} tone="accent" />
-                <MetricCard icon={AlertTriangle} label={t(language, 'ui.metricSkippedRoots')} value={summary.coverage.skippedRootCount.toLocaleString(language)} tone="confirm" />
-                <MetricCard icon={ShieldCheck} label={t(language, 'ui.metricFullDiskAccess')} value={formatFullDiskAccessStatus(summary.coverage.fullDiskAccessStatus, language)} tone={summary.coverage.fullDiskAccessStatus === 'likely-missing' ? 'confirm' : 'safe'} />
-              </div>
-            )}
-            {summary?.issueGroups?.length ? (
-              <details className="issue-details">
-                <summary>
-                  <Info size={15} />
-                  <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
-                </summary>
-                <div
-                  className="issue-details-body"
-                  role="region"
-                  tabIndex={0}
-                  aria-label={t(language, 'ui.issueDetailsBodyAria')}
-                >
-                  {summary.issueGroups.length > 1 && (
-                    <div className="issue-scroll-hint">{t(language, 'ui.issueScrollHint')}</div>
-                  )}
-                  {summary.issueGroups.map((group) => (
-                    <div className="issue-group-row" key={group.id}>
-                      <strong>{localizeIssueGroupTitle(group, language)}</strong>
-                      <p>{localizeIssueGroupMessage(group, language)}</p>
-                      {group.pathSamples.slice(0, 4).map((sample) => (
-                        <code key={sample}>{sample}</code>
-                      ))}
-                    </div>
-                  ))}
-                  <div className="permission-note">
-                    <ShieldCheck size={15} />
-                    <span>{t(language, 'ui.permissionIssueNote')}</span>
-                  </div>
-                  {summary.issueGroups.some((group) => group.kind === 'permission') && (
-                    <div className="permission-cta">
-                      {summary.coverage.fullDiskAccessStatus === 'likely-granted' ? (
-                        <>
-                          <p>{t(language, 'ui.fullDiskAccessGrantedHint')}</p>
-                          <span className="permission-status-pill granted">
-                            <CheckCircle2 size={14} />
-                            {t(language, 'ui.insightReadableYes')}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <p>
-                            {summary.coverage.fullDiskAccessStatus === 'unknown'
-                              ? t(language, 'ui.fullDiskAccessUnknownHint')
-                              : t(language, 'ui.fullDiskAccessHint')}
-                          </p>
-                          <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
-                            <ShieldCheck size={14} />
-                            {t(language, 'ui.fullDiskAccessCta')}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </details>
-            ) : (
-              <div className="issue-line muted">
-                <CheckCircle2 size={15} />
-                <span>{t(language, 'ui.noIssues')}</span>
-              </div>
-            )}
+          <div>
+            <span>{t(language, 'ui.summaryCanMove')}</span>
+            <strong>{formatBytes(cleanableStats.safeBytes)}</strong>
+            <p>{t(language, 'ui.summaryCanMoveHint')}</p>
+          </div>
+          <div>
+            <span>{t(language, 'ui.summaryReview')}</span>
+            <strong>{formatBytes(cleanableStats.confirmBytes)}</strong>
+            <p>{t(language, 'ui.summaryReviewHint')}</p>
+          </div>
+          <div>
+            <span>{t(language, 'ui.summaryLastScan')}</span>
+            <strong>{summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')}</strong>
+            <p>{localizeProgress(progress, language) ?? t(language, 'ui.noMutationHint')}</p>
           </div>
         </section>
 
         {summary?.brief && (
-          <ScanBriefPanel
-            brief={summary.brief}
-            language={language}
-            recommendations={recommendations}
-            onSelectRecommendation={(recommendationId) => {
-              setResultView('recommendations')
-              setSelectedRecommendationId(recommendationId)
-            }}
-          />
+          <section className="plain-scan-note" aria-label={t(language, 'ui.scanBriefTitle')}>
+            <div>
+              <strong>{t(language, 'ui.scanBriefTitle')}</strong>
+              <p>{localizeScanBriefSummary(summary.brief, language)}</p>
+            </div>
+            <span>{localizeScanBriefNextStep(summary.brief, language)}</span>
+          </section>
+        )}
+
+        {summary?.issueGroups?.length ? (
+          <details className="issue-details plain-issues">
+            <summary>
+              <Info size={15} />
+              <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
+            </summary>
+            <div
+              className="issue-details-body"
+              role="region"
+              tabIndex={0}
+              aria-label={t(language, 'ui.issueDetailsBodyAria')}
+            >
+              {summary.issueGroups.length > 1 && (
+                <div className="issue-scroll-hint">{t(language, 'ui.issueScrollHint')}</div>
+              )}
+              {summary.issueGroups.map((group) => (
+                <div className="issue-group-row" key={group.id}>
+                  <strong>{localizeIssueGroupTitle(group, language)}</strong>
+                  <p>{localizeIssueGroupMessage(group, language)}</p>
+                  {group.pathSamples.slice(0, 4).map((sample) => (
+                    <code key={sample}>{sample}</code>
+                  ))}
+                </div>
+              ))}
+              <div className="permission-note">
+                <ShieldCheck size={15} />
+                <span>{t(language, 'ui.permissionIssueNote')}</span>
+              </div>
+              {summary.issueGroups.some((group) => group.kind === 'permission') && (
+                <div className="permission-cta">
+                  {summary.coverage.fullDiskAccessStatus === 'likely-granted' ? (
+                    <>
+                      <p>{t(language, 'ui.fullDiskAccessGrantedHint')}</p>
+                      <span className="permission-status-pill granted">
+                        <CheckCircle2 size={14} />
+                        {t(language, 'ui.insightReadableYes')}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        {summary.coverage.fullDiskAccessStatus === 'unknown'
+                          ? t(language, 'ui.fullDiskAccessUnknownHint')
+                          : t(language, 'ui.fullDiskAccessHint')}
+                      </p>
+                      <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
+                        <ShieldCheck size={14} />
+                        {t(language, 'ui.fullDiskAccessCta')}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
+        ) : (
+          <div className="issue-line muted">
+            <CheckCircle2 size={15} />
+            <span>{t(language, 'ui.noIssues')}</span>
+          </div>
         )}
 
         <section className="content-grid">
-          <div className="candidate-panel">
-            <div className="result-tabs" role="tablist" aria-label={t(language, 'ui.storageOverview')}>
-              <button className={resultView === 'recommendations' ? 'active' : ''} onClick={() => setResultView('recommendations')}>
-                <Sparkles size={15} />
-                {t(language, 'ui.viewRecommendations')}
-              </button>
-              <button className={resultView === 'cleanup' ? 'active' : ''} onClick={() => setResultView('cleanup')}>
-                <ShieldCheck size={15} />
-                {t(language, 'ui.viewCleanup')}
-              </button>
-              <button className={resultView === 'map' ? 'active' : ''} onClick={() => setResultView('map')}>
-                <HardDrive size={15} />
-                {t(language, 'ui.viewMap')}
-              </button>
-            </div>
-            <div className="table-toolbar">
+          <div className="candidate-panel plain-panel">
+            <div className="table-toolbar plain-toolbar">
               <div className="toolbar-summary">
-                <span>
-                  {resultView === 'recommendations'
-                    ? t(language, 'ui.recommendationsTitle')
-                    : resultView === 'cleanup'
-                      ? t(language, 'ui.cleanupCandidates')
-                      : t(language, 'ui.spaceMapTitle')}
-                </span>
+                <span>{resultView === 'map' ? t(language, 'ui.spaceMapTitle') : t(language, 'ui.checklistTitle')}</span>
                 <strong>
-                  {resultView === 'recommendations'
-                    ? t(language, 'ui.recommendationCount', { count: filteredRecommendations.length.toLocaleString(language) })
-                    : resultView === 'cleanup'
-                      ? t(language, 'ui.itemCount', { count: filteredCandidates.length.toLocaleString(language) })
-                      : t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })}
+                  {resultView === 'map'
+                    ? t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })
+                    : t(language, 'ui.itemCount', { count: checklistItems.length.toLocaleString(language) })}
                 </strong>
               </div>
               <div className="toolbar-controls">
@@ -933,27 +910,27 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
                   <option value="name-asc">{t(language, 'ui.sortName')}</option>
                 </select>
-                {resultView === 'cleanup' && (
+                {resultView !== 'map' && (
                   <div className="toolbar-actions">
-                  <button
-                    className="secondary-button compact-action"
-                    onClick={toggleAllVisible}
-                    disabled={!filteredCandidates.some((candidate) => candidate.canClean && candidate.safety === 'safe')}
-                  >
-                    <CheckCircle2 size={15} />
-                    <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
-                  </button>
-                  <button
-                    className="primary-button danger compact-action batch-action"
-                    onClick={() => openCleanupPreview(selectedCleanableIds)}
-                    disabled={!selectedCleanableIds.length}
-                  >
-                    <Trash2 size={15} />
-                    <span>{t(language, 'ui.batchConfirmAction')}</span>
-                    <strong className="batch-count-pill">
-                      {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
-                    </strong>
-                  </button>
+                    <button
+                      className="secondary-button compact-action"
+                      onClick={toggleAllVisible}
+                      disabled={!visibleSafeCandidateIds.length}
+                    >
+                      <CheckCircle2 size={15} />
+                      <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
+                    </button>
+                    <button
+                      className="primary-button danger compact-action batch-action"
+                      onClick={() => openCleanupPreview(selectedCleanableIds)}
+                      disabled={!selectedCleanableIds.length}
+                    >
+                      <Trash2 size={15} />
+                      <span>{t(language, 'ui.batchConfirmAction')}</span>
+                      <strong className="batch-count-pill">
+                        {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
+                      </strong>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1009,122 +986,50 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               </div>
             )}
 
-            {resultView === 'recommendations' ? (
-              <>
-                <div className="candidate-table recommendation-table" role="table" aria-label={t(language, 'ui.recommendationsTitle')}>
-                  <div className="table-row table-head" role="row">
-                    <span>{t(language, 'ui.tableItem')}</span>
-                    <span>{t(language, 'ui.tableSafety')}</span>
-                    <span>{t(language, 'ui.tableSize')}</span>
-                    <span>{t(language, 'ui.tableImpact')}</span>
-                    <span>{t(language, 'ui.tableActions')}</span>
-                  </div>
-                  {filteredRecommendations.map((recommendation) => (
-                    <RecommendationRow
-                      key={recommendation.id}
-                      recommendation={recommendation}
-                      language={language}
-                      selected={selectedRecommendation?.id === recommendation.id}
-                      onSelect={() => setSelectedRecommendationId(recommendation.id)}
-                      onReveal={() => revealRecommendation(recommendation)}
-                      onAction={() => void handleRecommendationAction(recommendation)}
-                    />
-                  ))}
-                </div>
-
-                {!filteredRecommendations.length && (
-                  <div className="empty-state">
-                    <Sparkles size={28} />
-                    <strong>{summary ? t(language, 'ui.recommendationEmptyTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
-                    <span>{summary ? t(language, 'ui.recommendationEmptyText') : t(language, 'ui.emptyInitialText')}</span>
-                  </div>
-                )}
-              </>
-            ) : resultView === 'cleanup' ? (
-              <>
-                <div className="candidate-table" role="table" aria-label={t(language, 'ui.cleanupCandidates')}>
-                  <div className="table-row table-head" role="row">
-                    <span>{t(language, 'ui.tableItem')}</span>
-                    <span>{t(language, 'ui.tableSafety')}</span>
-                    <span>{t(language, 'ui.tableSize')}</span>
-                    <span>{t(language, 'ui.tableImpact')}</span>
-                    <span>{t(language, 'ui.tableActions')}</span>
-                  </div>
-                  {filteredCandidates.map((candidate) => (
-                    <CandidateRow
-                      key={candidate.id}
-                      candidate={candidate}
-                      language={language}
-                      selected={selectedCandidate?.id === candidate.id}
-                      checked={selectedIds.has(candidate.id)}
-                      onSelect={() => setSelectedCandidateId(candidate.id)}
-                      onToggleSelect={() => toggleCandidate(candidate.id)}
-                      onReveal={() => reveal(candidate)}
-                      onCleanup={() => openCleanupPreview([candidate.id])}
-                    />
-                  ))}
-                </div>
-
-                {!filteredCandidates.length && (
-                  <div className="empty-state">
-                    <ShieldCheck size={28} />
-                    <strong>{summary ? t(language, 'ui.emptyFilteredTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
-                    <span>{summary ? t(language, 'ui.emptyFilteredText') : t(language, 'ui.emptyInitialText')}</span>
-                  </div>
-                )}
-              </>
+            {resultView === 'map' ? (
+              <StorageMapPanel
+                insights={filteredInsights}
+                selectedInsight={selectedInsight}
+                language={language}
+                onSelect={(insight) => setSelectedInsightId(insight.id)}
+                onReveal={(insight) => revealInsight(insight)}
+                hasSummary={Boolean(summary)}
+              />
             ) : (
-              <>
-                <div className="candidate-table insight-table" role="table" aria-label={t(language, 'ui.spaceMapTitle')}>
-                  <div className="table-row table-head" role="row">
-                    <span>{t(language, 'ui.tableItem')}</span>
-                    <span>{t(language, 'ui.tableSafety')}</span>
-                    <span>{t(language, 'ui.tableSize')}</span>
-                    <span>{t(language, 'ui.tableImpact')}</span>
-                    <span>{t(language, 'ui.tableActions')}</span>
-                  </div>
-                  {filteredInsights.map((insight) => (
-                    <InsightRow
-                      key={insight.id}
-                      insight={insight}
-                      language={language}
-                      selected={selectedInsight?.id === insight.id}
-                      onSelect={() => setSelectedInsightId(insight.id)}
-                      onReveal={() => revealInsight(insight)}
-                    />
-                  ))}
-                </div>
-
-                {!filteredInsights.length && (
-                  <div className="empty-state">
-                    <HardDrive size={28} />
-                    <strong>{summary ? t(language, 'ui.spaceMapEmptyTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
-                    <span>{summary ? t(language, 'ui.spaceMapEmptyText') : t(language, 'ui.emptyInitialText')}</span>
-                  </div>
-                )}
-              </>
+              <ChecklistPanel
+                sections={checklistSections}
+                selectedItem={selectedChecklistItem}
+                selectedIds={selectedIds}
+                language={language}
+                hasSummary={Boolean(summary)}
+                onSelect={(item) => {
+                  setSelectedChecklistItemId(item.id)
+                  if (item.source === 'candidate') setSelectedCandidateId(item.candidate.id)
+                  else setSelectedRecommendationId(item.recommendation.id)
+                }}
+                onToggleCandidate={toggleCandidate}
+                onReveal={(item) => {
+                  if (item.source === 'candidate') void reveal(item.candidate)
+                  else void revealRecommendation(item.recommendation)
+                }}
+                onCleanup={(candidate) => openCleanupPreview([candidate.id])}
+                onRecommendationAction={(recommendation) => void handleRecommendationAction(recommendation)}
+              />
             )}
           </div>
 
-          {resultView === 'recommendations' ? (
-            <RecommendationInspector
-              recommendation={selectedRecommendation}
-              language={language}
-              onReveal={selectedRecommendation ? () => revealRecommendation(selectedRecommendation) : undefined}
-              onAction={selectedRecommendation ? () => void handleRecommendationAction(selectedRecommendation) : undefined}
-            />
-          ) : resultView === 'cleanup' ? (
-            <CandidateInspector
-              candidate={selectedCandidate}
-              language={language}
-              onReveal={selectedCandidate ? () => reveal(selectedCandidate) : undefined}
-              onCleanup={selectedCandidate ? () => openCleanupPreview([selectedCandidate.id]) : undefined}
-            />
-          ) : (
+          {resultView === 'map' ? (
             <InsightInspector
               insight={selectedInsight}
               language={language}
               onReveal={selectedInsight ? () => revealInsight(selectedInsight) : undefined}
+            />
+          ) : (
+            <ChecklistInspector
+              item={selectedChecklistItem}
+              language={language}
+              onReveal={selectedChecklistItem ? () => selectedChecklistItem.source === 'candidate' ? reveal(selectedChecklistItem.candidate) : revealRecommendation(selectedChecklistItem.recommendation) : undefined}
+              onPrimary={selectedChecklistItem ? () => selectedChecklistItem.source === 'candidate' ? openCleanupPreview([selectedChecklistItem.candidate.id]) : void handleRecommendationAction(selectedChecklistItem.recommendation) : undefined}
             />
           )}
         </section>
@@ -1153,45 +1058,365 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   )
 }
 
-function CategoryNavItem({
-  category,
+function ChecklistPanel({
+  sections,
+  selectedItem,
+  selectedIds,
   language,
-  active,
-  onSelect
+  hasSummary,
+  onSelect,
+  onToggleCandidate,
+  onReveal,
+  onCleanup,
+  onRecommendationAction
 }: {
-  category: CategorySummary
+  sections: ChecklistSection[]
+  selectedItem: ChecklistItem | null
+  selectedIds: Set<string>
   language: AppLanguage
-  active: boolean
-  onSelect: () => void
+  hasSummary: boolean
+  onSelect: (item: ChecklistItem) => void
+  onToggleCandidate: (candidateId: string) => void
+  onReveal: (item: ChecklistItem) => void
+  onCleanup: (candidate: CleanupCandidate) => void
+  onRecommendationAction: (recommendation: StorageRecommendation) => void
 }): JSX.Element {
-  const Icon = categoryIcons[category.id] ?? Archive
+  const itemCount = sections.reduce((count, section) => count + section.items.length, 0)
+  if (!itemCount) {
+    return (
+      <div className="empty-state plain-empty">
+        <ShieldCheck size={28} />
+        <strong>{hasSummary ? t(language, 'ui.emptyFilteredTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+        <span>{hasSummary ? t(language, 'ui.emptyFilteredText') : t(language, 'ui.emptyInitialText')}</span>
+      </div>
+    )
+  }
+
   return (
-    <button className={active ? 'nav-item active' : 'nav-item'} onClick={onSelect}>
-      <Icon size={17} />
-      <span>{localizeCategoryName(category, language)}</span>
-      <strong>{formatBytes(category.sizeBytes)}</strong>
-    </button>
+    <div className="checklist-sections" aria-label={t(language, 'ui.checklistTitle')}>
+      {sections.map((section, index) => (
+        <section className={`checklist-section ${section.kind}`} key={section.kind}>
+          <header className="checklist-section-header">
+            <div>
+              <span className="checklist-section-number">{index + 1}</span>
+              <strong>{t(language, section.titleKey)}</strong>
+              <span>{t(language, section.descriptionKey, { count: section.items.length.toLocaleString(language), bytes: formatBytes(section.totalBytes) })}</span>
+            </div>
+            <em>{t(language, 'ui.sectionTotal', { count: section.items.length.toLocaleString(language), bytes: formatBytes(section.totalBytes) })}</em>
+          </header>
+          {section.items.length ? (
+            <div className="plain-table" role="table" aria-label={t(language, section.titleKey)}>
+              <div className="plain-table-head" role="row">
+                <span>{t(language, 'ui.tableItem')}</span>
+                <span>{t(language, 'ui.tableSize')}</span>
+                <span>{t(language, 'ui.whatThisIs')}</span>
+                <span>{t(language, 'ui.canDelete')}</span>
+                <span>{t(language, 'ui.afterCleanup')}</span>
+                <span>{t(language, 'ui.tableActions')}</span>
+              </div>
+              {section.items.map((item) => (
+                <ChecklistRow
+                  key={item.id}
+                  item={item}
+                  language={language}
+                  selected={selectedItem?.id === item.id}
+                  checked={item.source === 'candidate' && selectedIds.has(item.candidate.id)}
+                  onSelect={() => onSelect(item)}
+                  onToggleCandidate={() => item.source === 'candidate' && onToggleCandidate(item.candidate.id)}
+                  onReveal={() => onReveal(item)}
+                  onCleanup={() => item.source === 'candidate' && onCleanup(item.candidate)}
+                  onRecommendationAction={() => item.source === 'recommendation' && onRecommendationAction(item.recommendation)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="checklist-section-empty">{t(language, 'ui.sectionEmpty')}</p>
+          )}
+        </section>
+      ))}
+    </div>
   )
 }
 
-function MetricCard({
-  icon: Icon,
-  label,
-  value,
-  tone
+function ChecklistRow({
+  item,
+  language,
+  selected,
+  checked,
+  onSelect,
+  onToggleCandidate,
+  onReveal,
+  onCleanup,
+  onRecommendationAction
 }: {
-  icon: LucideIcon
-  label: string
-  value: string
-  tone: 'accent' | 'safe' | 'confirm' | 'muted'
+  item: ChecklistItem
+  language: AppLanguage
+  selected: boolean
+  checked: boolean
+  onSelect: () => void
+  onToggleCandidate: () => void
+  onReveal: () => void
+  onCleanup: () => void
+  onRecommendationAction: () => void
 }): JSX.Element {
+  const handleKeyboardSelect = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect()
+    }
+  }
+  const canClean = item.source === 'candidate' && item.candidate.canClean
+  const canShowPath = item.source === 'candidate' || Boolean(item.recommendation.pathToken)
+  const title = checklistItemTitle(item, language)
+  const actionLabel = checklistItemAction(item, language)
+  const Icon = checklistItemIcon(item)
+
   return (
-    <div className={`metric-card ${tone}`}>
-      <span className="metric-icon">
-        <Icon size={15} />
+    <div
+      className={selected ? `plain-row selected ${item.section}` : `plain-row ${item.section}`}
+      role="row"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleKeyboardSelect}
+    >
+      <span className="plain-item-title">
+        {item.source === 'candidate' ? (
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!canClean || item.candidate.safety !== 'safe'}
+            aria-label={t(language, 'ui.selectCandidateAria', { title })}
+            onChange={(event) => {
+              event.stopPropagation()
+              onToggleCandidate()
+            }}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : (
+          <span className="plain-row-spacer" aria-hidden="true" />
+        )}
+        <span className={`candidate-kind-mark ${checklistItemTone(item)}`}>
+          <Icon size={15} />
+        </span>
+        <span className="candidate-title-copy">
+          <strong>{title}</strong>
+          <small>{checklistItemPath(item)}</small>
+        </span>
       </span>
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span className="size-cell">{formatBytes(checklistItemSize(item))}</span>
+      <span className="plain-copy-cell">{checklistItemExplanation(item, 'what', language)}</span>
+      <span className="plain-copy-cell">{checklistItemExplanation(item, 'cleanability', language)}</span>
+      <span className="plain-copy-cell">{checklistItemExplanation(item, 'afterAction', language)}</span>
+      <span className="row-actions">
+        <button
+          className="icon-button"
+          title={t(language, 'ui.revealInFinder')}
+          aria-label={`${t(language, 'ui.revealInFinder')}: ${title}`}
+          disabled={!canShowPath}
+          onClick={(event) => {
+            event.stopPropagation()
+            onReveal()
+          }}
+        >
+          <FolderOpen size={15} />
+        </button>
+        {item.source === 'candidate' ? (
+          <button
+            className="cleanup-button row-cleanup-button"
+            title={canClean ? actionLabel : t(language, 'ui.cannotClean')}
+            aria-label={canClean ? `${actionLabel}: ${title}` : `${t(language, 'ui.cannotClean')}: ${title}`}
+            disabled={!canClean}
+            onClick={(event) => {
+              event.stopPropagation()
+              onCleanup()
+            }}
+          >
+            <Trash2 size={15} />
+            <span className="sr-only">{actionLabel}</span>
+          </button>
+        ) : (
+          <button
+            className="icon-button"
+            title={actionLabel}
+            aria-label={`${actionLabel}: ${title}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onRecommendationAction()
+            }}
+          >
+            <ChevronRight size={15} />
+          </button>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function ChecklistInspector({
+  item,
+  language,
+  onReveal,
+  onPrimary
+}: {
+  item: ChecklistItem | null
+  language: AppLanguage
+  onReveal?: () => void
+  onPrimary?: () => void
+}): JSX.Element {
+  if (!item) {
+    return (
+      <aside className="inspector empty-inspector">
+        <ShieldCheck size={30} />
+        <strong>{t(language, 'ui.emptyInspectorTitle')}</strong>
+        <span>{t(language, 'ui.emptyInspectorText')}</span>
+      </aside>
+    )
+  }
+
+  const title = checklistItemTitle(item, language)
+  const tone = checklistItemTone(item)
+  const Icon = checklistItemIcon(item)
+  const canPrimary = item.source === 'candidate' ? item.candidate.canClean : true
+
+  return (
+    <aside className="inspector plain-inspector">
+      <div className="inspector-heading">
+        <span>{t(language, `ui.checklistSection.${item.section}.short`)}</span>
+        <span className={`safety-badge ${tone}`}>
+          <Icon size={14} />
+          {checklistItemBadge(item, language)}
+        </span>
+      </div>
+      <h2>{title}</h2>
+      <p className="path-line">{checklistItemPath(item)}</p>
+
+      <div className="detail-stack plain-detail-stack">
+        <div className="detail-item">
+          <span>{t(language, 'ui.estimatedSize')}</span>
+          <strong>{formatBytes(checklistItemSize(item))}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.pathCount')}</span>
+          <strong>{checklistItemPathCount(item).toLocaleString(language)}</strong>
+        </div>
+        <div className="detail-item">
+          <span>{t(language, 'ui.lastModified')}</span>
+          <strong>{checklistItemLastModified(item, language)}</strong>
+        </div>
+      </div>
+
+      <section className={`recommendation-card ${tone}`}>
+        <div>
+          <Icon size={17} />
+          <span>{t(language, 'ui.recommendedAction')}</span>
+        </div>
+        <strong>{checklistItemAction(item, language)}</strong>
+        <p>{checklistItemExplanation(item, 'nextStep', language)}</p>
+      </section>
+
+      <section className="impact-box plain-note-box">
+        <span>{t(language, 'ui.whatThisIs')}</span>
+        <p>{checklistItemExplanation(item, 'what', language)}</p>
+        <span>{t(language, 'ui.canDelete')}</span>
+        <p>{checklistItemExplanation(item, 'cleanability', language)}</p>
+        <span>{t(language, 'ui.afterCleanup')}</span>
+        <p>{checklistItemExplanation(item, 'afterAction', language)}</p>
+        <span>{t(language, 'ui.whenToKeep')}</span>
+        <p>{checklistItemExplanation(item, 'keepAdvice', language)}</p>
+      </section>
+
+      {item.source === 'candidate' && item.candidate.safety === 'discouraged' && (
+        <section className="permission-policy-box">
+          <div>
+            <ShieldCheck size={17} />
+            <strong>{t(language, 'ui.permissionPolicyTitle')}</strong>
+          </div>
+          <p>{t(language, 'ui.permissionPolicyText')}</p>
+        </section>
+      )}
+
+      {item.source === 'candidate' ? (
+        <>
+          <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={candidateTrustEvidence(item.candidate, language)} language={language} />
+          <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={candidateDoNotTouch(item.candidate, language)} language={language} />
+        </>
+      ) : (
+        <>
+          <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={item.recommendation.evidence} language={language} />
+          <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={item.recommendation.doNotTouch} language={language} />
+        </>
+      )}
+
+      {item.source === 'candidate' && item.candidate.displayKind === 'group' && (
+        <section className="impact-box group-detail-box">
+          <span>{t(language, 'ui.pathSamples')}</span>
+          <div className="sample-path-list">
+            {item.candidate.pathSamples.slice(0, 8).map((sample) => (
+              <code key={sample}>{sample}</code>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="inspector-actions">
+        <button className="secondary-button" onClick={onReveal}>
+          <FolderOpen size={16} />
+          {t(language, 'ui.revealLocation')}
+        </button>
+        <button className={item.source === 'candidate' ? 'primary-button danger' : 'secondary-button'} disabled={!canPrimary} onClick={onPrimary}>
+          {item.source === 'candidate' ? <Trash2 size={16} /> : <ChevronRight size={16} />}
+          {checklistItemAction(item, language)}
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+function StorageMapPanel({
+  insights,
+  selectedInsight,
+  language,
+  onSelect,
+  onReveal,
+  hasSummary
+}: {
+  insights: StorageInsight[]
+  selectedInsight: StorageInsight | null
+  language: AppLanguage
+  onSelect: (insight: StorageInsight) => void
+  onReveal: (insight: StorageInsight) => void
+  hasSummary: boolean
+}): JSX.Element {
+  if (!insights.length) {
+    return (
+      <div className="empty-state plain-empty">
+        <HardDrive size={28} />
+        <strong>{hasSummary ? t(language, 'ui.spaceMapEmptyTitle') : t(language, 'ui.emptyInitialTitle')}</strong>
+        <span>{hasSummary ? t(language, 'ui.spaceMapEmptyText') : t(language, 'ui.emptyInitialText')}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="plain-table map-table" role="table" aria-label={t(language, 'ui.spaceMapTitle')}>
+      <div className="plain-table-head" role="row">
+        <span>{t(language, 'ui.tableItem')}</span>
+        <span>{t(language, 'ui.tableSize')}</span>
+        <span>{t(language, 'ui.whatThisIs')}</span>
+        <span>{t(language, 'ui.canDelete')}</span>
+        <span>{t(language, 'ui.afterCleanup')}</span>
+        <span>{t(language, 'ui.tableActions')}</span>
+      </div>
+      {insights.map((insight) => (
+        <InsightRow
+          key={insight.id}
+          insight={insight}
+          language={language}
+          selected={selectedInsight?.id === insight.id}
+          onSelect={() => onSelect(insight)}
+          onReveal={() => onReveal(insight)}
+        />
+      ))}
     </div>
   )
 }
@@ -2071,10 +2296,6 @@ function isLightTheme(theme: AppTheme): boolean {
   return theme === 'aurora-light' || theme === 'solar-minimal'
 }
 
-function localizeCategoryName(category: CategorySummary, language: AppLanguage): string {
-  return category.nameKey ? t(language, category.nameKey) : category.name
-}
-
 function localizeCandidateTitle(candidate: CleanupCandidate, language: AppLanguage): string {
   return candidate.titleKey ? t(language, candidate.titleKey, candidate.titleParams) : candidate.title
 }
@@ -2410,6 +2631,248 @@ function calculateCleanableStats(candidates: CleanupCandidate[]): {
     },
     { safeBytes: 0, confirmBytes: 0, discouragedBytes: 0, cleanableBytes: 0 }
   )
+}
+
+function buildChecklistSections(
+  candidates: CleanupCandidate[],
+  recommendations: StorageRecommendation[],
+  query: string,
+  sortMode: 'recommended' | 'size-desc' | 'risk-desc' | 'name-asc',
+  language: AppLanguage
+): ChecklistSection[] {
+  const seenCandidateIds = new Set(candidates.map((candidate) => candidate.id))
+  const sections: ChecklistSection[] = [
+    {
+      kind: 'recommended-cleanup',
+      titleKey: 'ui.checklistSection.recommended-cleanup.title',
+      descriptionKey: 'ui.checklistSection.recommended-cleanup.description',
+      items: candidates
+        .filter((candidate) => candidate.canClean && candidate.safety === 'safe')
+        .map((candidate) => makeCandidateChecklistItem(candidate, 'recommended-cleanup')),
+      totalBytes: 0
+    },
+    {
+      kind: 'review-first',
+      titleKey: 'ui.checklistSection.review-first.title',
+      descriptionKey: 'ui.checklistSection.review-first.description',
+      items: [
+        ...candidates
+          .filter((candidate) => candidate.canClean && candidate.safety === 'confirm')
+          .map((candidate) => makeCandidateChecklistItem(candidate, 'review-first')),
+        ...recommendations
+          .filter((recommendation) => recommendation.decision === 'review-first' && !recommendationOverlapsCandidates(recommendation, seenCandidateIds))
+          .map((recommendation) => makeRecommendationChecklistItem(recommendation, 'review-first'))
+      ],
+      totalBytes: 0
+    },
+    {
+      kind: 'manual-tool',
+      titleKey: 'ui.checklistSection.manual-tool.title',
+      descriptionKey: 'ui.checklistSection.manual-tool.description',
+      items: recommendations
+        .filter((recommendation) => recommendation.decision === 'manual-tool' && !recommendationOverlapsCandidates(recommendation, seenCandidateIds))
+        .map((recommendation) => makeRecommendationChecklistItem(recommendation, 'manual-tool')),
+      totalBytes: 0
+    },
+    {
+      kind: 'do-not-delete',
+      titleKey: 'ui.checklistSection.do-not-delete.title',
+      descriptionKey: 'ui.checklistSection.do-not-delete.description',
+      items: [
+        ...candidates
+          .filter((candidate) => !candidate.canClean || candidate.safety === 'discouraged')
+          .map((candidate) => makeCandidateChecklistItem(candidate, 'do-not-delete')),
+        ...recommendations
+          .filter((recommendation) => recommendation.decision === 'do-not-delete' && !recommendationOverlapsCandidates(recommendation, seenCandidateIds))
+          .map((recommendation) => makeRecommendationChecklistItem(recommendation, 'do-not-delete'))
+      ],
+      totalBytes: 0
+    }
+  ]
+
+  return sections.map((section) => {
+    const filtered = sortChecklistItems(
+      section.items.filter((item) => checklistItemMatchesQuery(item, query, language)),
+      sortMode,
+      language
+    )
+    return {
+      ...section,
+      items: filtered,
+      totalBytes: filtered.reduce((sum, item) => sum + checklistItemSize(item), 0)
+    }
+  })
+}
+
+function recommendationOverlapsCandidates(recommendation: StorageRecommendation, candidateIds: Set<string>): boolean {
+  return Boolean(recommendation.candidateIds?.some((candidateId) => candidateIds.has(candidateId)))
+}
+
+function makeCandidateChecklistItem(candidate: CleanupCandidate, section: ChecklistSectionKind): ChecklistItem {
+  return {
+    id: `candidate:${candidate.id}`,
+    source: 'candidate',
+    section,
+    candidate
+  }
+}
+
+function makeRecommendationChecklistItem(recommendation: StorageRecommendation, section: ChecklistSectionKind): ChecklistItem {
+  return {
+    id: `recommendation:${recommendation.id}`,
+    source: 'recommendation',
+    section,
+    recommendation
+  }
+}
+
+function checklistItemMatchesQuery(item: ChecklistItem, query: string, language: AppLanguage): boolean {
+  const lowerQuery = query.trim().toLowerCase()
+  if (!lowerQuery) return true
+  const haystack = [
+    checklistItemTitle(item, language),
+    checklistItemPath(item),
+    checklistItemExplanation(item, 'what', language),
+    checklistItemExplanation(item, 'cleanability', language),
+    checklistItemExplanation(item, 'afterAction', language),
+    checklistItemExplanation(item, 'keepAdvice', language),
+    checklistItemAction(item, language)
+  ].join(' ').toLowerCase()
+  return haystack.includes(lowerQuery)
+}
+
+function sortChecklistItems(
+  items: ChecklistItem[],
+  sortMode: 'recommended' | 'size-desc' | 'risk-desc' | 'name-asc',
+  language: AppLanguage
+): ChecklistItem[] {
+  return [...items].sort((left, right) => {
+    if (sortMode === 'name-asc') return checklistItemTitle(left, language).localeCompare(checklistItemTitle(right, language))
+    if (sortMode === 'size-desc') return checklistItemSize(right) - checklistItemSize(left)
+    if (sortMode === 'risk-desc') return checklistItemRiskScore(right) - checklistItemRiskScore(left) || checklistItemSize(right) - checklistItemSize(left)
+    return checklistItemPriority(right) - checklistItemPriority(left) || checklistItemSize(right) - checklistItemSize(left)
+  })
+}
+
+function checklistItemPriority(item: ChecklistItem): number {
+  if (item.source === 'recommendation') return item.recommendation.priorityScore
+  if (item.candidate.safety === 'safe') return 3_000_000_000_000 + item.candidate.sizeBytes
+  if (item.candidate.safety === 'confirm') return 2_000_000_000_000 + item.candidate.sizeBytes
+  return item.candidate.sizeBytes
+}
+
+function checklistItemRiskScore(item: ChecklistItem): number {
+  if (item.section === 'do-not-delete') return 4
+  if (item.section === 'manual-tool') return 3
+  if (item.section === 'review-first') return 2
+  return 1
+}
+
+function checklistItemTitle(item: ChecklistItem, language: AppLanguage): string {
+  return item.source === 'candidate'
+    ? localizeCandidateTitle(item.candidate, language)
+    : localizeRecommendationTitle(item.recommendation, language)
+}
+
+function checklistItemPath(item: ChecklistItem): string {
+  return item.source === 'candidate' ? item.candidate.pathPreview : item.recommendation.pathPreview
+}
+
+function checklistItemSize(item: ChecklistItem): number {
+  return item.source === 'candidate' ? item.candidate.sizeBytes : item.recommendation.sizeBytes
+}
+
+function checklistItemPathCount(item: ChecklistItem): number {
+  return item.source === 'candidate' ? item.candidate.pathCount : item.recommendation.pathCount
+}
+
+function checklistItemTone(item: ChecklistItem): string {
+  if (item.section === 'recommended-cleanup') return 'safe'
+  if (item.section === 'do-not-delete') return 'discouraged'
+  return 'confirm'
+}
+
+function checklistItemBadge(item: ChecklistItem, language: AppLanguage): string {
+  if (item.source === 'candidate') return t(language, safetyMeta[item.candidate.safety].labelKey)
+  return t(language, `ui.recommendationRisk.${item.recommendation.risk}`)
+}
+
+function checklistItemIcon(item: ChecklistItem): LucideIcon {
+  if (item.source === 'candidate') return categoryIcons[item.candidate.categoryId] ?? Archive
+  return recommendationIcon(item.recommendation.kind)
+}
+
+function checklistItemAction(item: ChecklistItem, language: AppLanguage): string {
+  return item.source === 'candidate'
+    ? localizeCandidateAction(item.candidate, language)
+    : localizeRecommendationAction(item.recommendation, language)
+}
+
+function checklistItemExplanation(item: ChecklistItem, field: HumanExplanationField, language: AppLanguage): string {
+  if (item.source === 'candidate') {
+    const meta = safetyMeta[item.candidate.safety]
+    const fallback =
+      field === 'what'
+        ? localizeCandidateReason(item.candidate, language)
+        : field === 'afterAction'
+          ? localizeCandidateImpact(item.candidate, language)
+          : t(language, meta.descriptionKey)
+    return localizeCandidateExplanation(item.candidate, field, language, fallback)
+  }
+  const fallback =
+    field === 'what'
+      ? localizeRecommendationReason(item.recommendation, language)
+      : localizeRecommendationRecommendation(item.recommendation, language)
+  return localizeRecommendationExplanation(item.recommendation, field, language, fallback)
+}
+
+function checklistItemLastModified(item: ChecklistItem, language: AppLanguage): string {
+  const lastModified = item.source === 'candidate' ? item.candidate.lastModified : item.recommendation.lastModified
+  return lastModified ? formatDate(lastModified, language) : t(language, 'ui.unknown')
+}
+
+function candidateTrustEvidence(candidate: CleanupCandidate, language: AppLanguage): TrustEvidenceItem[] {
+  return [
+    {
+      label: t(language, 'trust.evidence.scan.label'),
+      detail: t(language, 'trust.evidence.scan.detail', { count: candidate.pathCount.toLocaleString(language) }),
+      tone: 'safe'
+    },
+    {
+      label: t(language, 'advisor.evidence.size.label'),
+      detail: t(language, 'advisor.evidence.size.detail', { size: formatBytes(candidate.sizeBytes), path: candidate.pathPreview }),
+      tone: 'info'
+    },
+    {
+      label: t(language, candidate.canClean ? 'advisor.evidence.safeCatalog.label' : 'advisor.evidence.manualOnly.label'),
+      detail: candidate.canClean
+        ? t(language, 'advisor.evidence.safeCatalog.detail')
+        : t(language, 'advisor.evidence.manualOnly.detail'),
+      tone: candidate.canClean ? 'safe' : 'blocked'
+    }
+  ]
+}
+
+function candidateDoNotTouch(candidate: CleanupCandidate, language: AppLanguage): TrustEvidenceItem[] {
+  return [
+    {
+      label: t(language, 'trust.guarantee.trash.label'),
+      detail: t(language, 'trust.guarantee.trash.detail'),
+      tone: 'safe'
+    },
+    {
+      label: t(language, 'trust.exclusion.system.label'),
+      detail: t(language, 'trust.exclusion.system.detail'),
+      tone: 'blocked'
+    },
+    {
+      label: t(language, candidate.canClean ? 'trust.exclusion.outsideList.label' : 'advisor.exclusion.noAutoAction.label'),
+      detail: candidate.canClean
+        ? t(language, 'trust.exclusion.outsideList.detail')
+        : t(language, 'advisor.exclusion.noAutoAction.detail'),
+      tone: 'blocked'
+    }
+  ]
 }
 
 function formatFullDiskAccessStatus(status: FullDiskAccessStatus, language: AppLanguage): string {
