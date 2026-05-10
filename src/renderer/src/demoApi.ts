@@ -542,7 +542,7 @@ export function createDemoApi(): MacCleanerApi {
   let languagePreference: AppLanguage | null = null
   let themePreference: ThemePreference | null = null
   const demoUpdateConfig: LocalUpdateConfig = {
-    repoPath: '/Users/yizuo/Mac-Clearner',
+    repoPath: '/Users/yizuo/Mac-Cleaner',
     installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app'
   }
 

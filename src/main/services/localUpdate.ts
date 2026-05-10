@@ -54,7 +54,7 @@ interface RepoInfo {
 
 export function createLocalUpdateService(options: LocalUpdateServiceOptions = {}): LocalUpdateService {
   let config: LocalUpdateConfig = normalizeConfig({
-    repoPath: options.repoPath ?? process.env.MAC_CLEANER_REPO_PATH ?? path.join(os.homedir(), 'Mac-Clearner'),
+    repoPath: options.repoPath ?? process.env.MAC_CLEANER_REPO_PATH ?? path.join(os.homedir(), 'Mac-Cleaner'),
     installTarget: options.installTarget ?? process.env.MAC_CLEANER_INSTALL_TARGET ?? readSavedInstallTarget() ?? getDefaultInstallTarget()
   })
   const runCommand = options.commandRunner ?? defaultCommandRunner

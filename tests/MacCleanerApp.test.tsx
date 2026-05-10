@@ -21,7 +21,7 @@ const currentUpdateStatus: LocalUpdateStatus = {
   updateAvailable: false,
   currentVersion: '0.10.0',
   latestVersion: '0.10.0',
-  repoPath: '/Users/yizuo/Mac-Clearner',
+  repoPath: '/Users/yizuo/Mac-Cleaner',
   installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app',
   currentBranch: 'codex/reliability-upgrades',
   upstream: 'origin/codex/reliability-upgrades',
