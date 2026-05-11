@@ -25,6 +25,9 @@ export type StorageRecommendationRisk = 'safe' | 'confirm' | 'manual-only'
 export type RecommendationAction = 'move-to-trash' | 'run-safe-tool' | 'open-owner-app' | 'reveal-only'
 export type RecommendationConfidence = 'high' | 'medium' | 'low'
 export type RecommendationDecision = 'recommended-cleanup' | 'review-first' | 'manual-tool' | 'do-not-delete'
+export type DeletionMode = 'trash' | 'manual-tool' | 'reveal-only'
+export type CleanerTargetRisk = 'safe' | 'confirm' | 'manual-only' | 'blocked'
+export type PreflightStatus = 'pass' | 'warn' | 'block'
 export type ScanUrgency = 'healthy' | 'low-space' | 'critical'
 export type ScanBriefBucketKind = 'recommended-cleanup' | 'review-first' | 'manual-tool' | 'do-not-delete'
 export type FullDiskAccessStatus = 'unknown' | 'likely-granted' | 'likely-missing'
@@ -112,6 +115,13 @@ export interface CleanupTrustReport {
   recoveryParams?: I18nParams
 }
 
+export interface ProtectedPath {
+  id: string
+  path: string
+  reason?: string
+  createdAt: string
+}
+
 export interface CleanupCandidate {
   id: string
   scanId: string
@@ -148,6 +158,11 @@ export interface CleanupCandidate {
   blockedReason?: string
   blockedReasonKey?: string
   blockedReasonParams?: I18nParams
+  targetId?: string
+  targetName?: string
+  targetNameKey?: string
+  deletionMode?: DeletionMode
+  preflightEvidence?: TrustEvidenceItem[]
 }
 
 export interface ScanIssue {
@@ -212,6 +227,11 @@ export interface StorageInsight {
   recommendationParams?: I18nParams
   explanation: HumanExplanation
   lastModified?: string
+  targetId?: string
+  targetName?: string
+  targetNameKey?: string
+  deletionMode?: DeletionMode
+  preflightEvidence?: TrustEvidenceItem[]
 }
 
 export interface StorageRecommendation {
@@ -251,6 +271,11 @@ export interface StorageRecommendation {
   actionLabelParams?: I18nParams
   explanation: HumanExplanation
   lastModified?: string
+  targetId?: string
+  targetName?: string
+  targetNameKey?: string
+  deletionMode?: DeletionMode
+  preflightEvidence?: TrustEvidenceItem[]
 }
 
 export interface ScanBriefBucket {
@@ -485,6 +510,8 @@ export interface MacCleanerApi {
   setLanguagePreference(language: AppLanguage): Promise<AppLanguage>
   getThemePreference(): Promise<ThemePreference | null>
   setThemePreference(themePreference: ThemePreference): Promise<ThemePreference>
+  getProtectedPaths(): Promise<ProtectedPath[]>
+  setProtectedPaths(paths: ProtectedPath[]): Promise<ProtectedPath[]>
   onScanProgress(listener: (progress: ScanProgress) => void): () => void
   onLocalUpdateProgress(listener: (progress: LocalUpdateProgress) => void): () => void
 }

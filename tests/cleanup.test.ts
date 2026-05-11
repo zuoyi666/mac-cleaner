@@ -67,7 +67,29 @@ describe('createCleanupManager', () => {
     const result = await manager.moveToTrash([candidate.id], preview.confirmationId)
 
     expect(result.successCount).toBe(0)
-    expect(result.failed[0]?.error).toContain('超出允许清理范围')
+    expect(result.failed[0]?.errorKey).toBe('preflight.blocked.outsideRoot.detail')
+    expect(result.failed[0]?.error).toContain('允许根目录')
+    expect(trashItem).not.toHaveBeenCalled()
+    expect(store.getCandidate(candidate.id)).toBe(candidate)
+  })
+
+  it('rechecks user-protected paths before moving anything to trash', async () => {
+    const { candidate, store } = await makeStoreCandidate()
+    const trashItem = vi.fn(async () => undefined)
+    const manager = createCleanupManager(
+      {
+        ...store,
+        getProtectedPaths: () => [{ id: 'keep', path: candidate.paths[0], createdAt: new Date().toISOString() }]
+      },
+      trashItem
+    )
+
+    const preview = manager.cleanupPreview([candidate.id])
+    const result = await manager.moveToTrash([candidate.id], preview.confirmationId)
+
+    expect(result.successCount).toBe(0)
+    expect(result.failed[0]?.errorKey).toBe('preflight.blocked.protectedPath.detail')
+    expect(result.failed[0]?.error).toContain('保护')
     expect(trashItem).not.toHaveBeenCalled()
     expect(store.getCandidate(candidate.id)).toBe(candidate)
   })

@@ -1,10 +1,19 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
-import type { AppLanguage, CleanupPreview, CleanupResult, CleanupTrustReport, HumanExplanation, TrustEvidenceItem } from '../../shared/types'
+import type {
+  AppLanguage,
+  CleanupPreview,
+  CleanupResult,
+  CleanupTrustReport,
+  HumanExplanation,
+  ProtectedPath,
+  TrustEvidenceItem
+} from '../../shared/types'
 import { t } from '../../shared/i18n'
 import type { InternalCandidate } from './scanner'
 import { isWithinPath } from './pathSafety'
+import { runSafetyGate } from './safetyGate'
 
 const CONFIRMATION_TTL_MS = 5 * 60 * 1000
 
@@ -12,6 +21,7 @@ export interface CleanupStore {
   getCandidate(candidateId: string): InternalCandidate | undefined
   removeCandidate(candidateId: string): void
   getTrashPath?(): string | undefined
+  getProtectedPaths?(): ProtectedPath[] | Promise<ProtectedPath[]>
 }
 
 export interface CleanupManager {
@@ -90,11 +100,33 @@ export function createCleanupManager(
       let cleanedBytes = 0
       const successfulCandidates = new Set<string>()
       const trashBefore = await readTrashSnapshot(store.getTrashPath?.())
+      const protectedPaths = await Promise.resolve(store.getProtectedPaths?.() ?? [])
 
       for (const candidate of candidates) {
         let candidateSucceeded = true
         for (const snapshot of candidate.pathSnapshots) {
           const targetPath = snapshot.path
+          const safetyGate = await runSafetyGate({
+            targetPath,
+            allowedRoot: candidate.allowedRoot,
+            homeDir: candidate.homeDir ?? os.homedir(),
+            protectedPaths,
+            language
+          })
+          if (!safetyGate.allowed) {
+            failed.push({
+              candidateId: candidate.id,
+              path: targetPath,
+              error: safetyGate.blockReasonKey
+                ? t(language, safetyGate.blockReasonKey, safetyGate.blockReasonParams)
+                : t(language, 'cleanup.failure.safetyGateBlocked'),
+              errorKey: safetyGate.blockReasonKey ?? 'cleanup.failure.safetyGateBlocked',
+              errorParams: safetyGate.blockReasonParams
+            })
+            candidateSucceeded = false
+            continue
+          }
+
           if (!isWithinPath(targetPath, candidate.allowedRoot)) {
             failed.push({
               candidateId: candidate.id,
@@ -183,7 +215,7 @@ function getCleanableCandidates(store: CleanupStore, candidateIdsInput: string |
       throw new Error(t(language, 'cleanup.error.notFound'))
     }
 
-    if (!candidate.canClean || candidate.safety === 'discouraged') {
+    if (!candidate.canClean || candidate.safety === 'discouraged' || (candidate.deletionMode ?? 'trash') !== 'trash') {
       throw new Error(t(language, 'cleanup.error.discouraged'))
     }
 
@@ -240,13 +272,16 @@ function buildTrustReport(
   const hasReviewItems = candidates.some((candidate) => candidate.safety === 'confirm')
   const allowlistRoots = uniqueStrings(candidates.map((candidate) => compactPreviewPath(candidate.allowedRoot))).join(', ')
   const categoryNames = uniqueStrings(candidates.map((candidate) => candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName)).join(', ')
+  const targetNames = uniqueStrings(candidates.map((candidate) => candidate.targetNameKey ? t(language, candidate.targetNameKey) : candidate.targetName ?? candidate.categoryName)).join(', ')
   const params = {
     count: candidates.length,
     paths: operationPaths.length,
     bytes: formatBytesForMessage(totalBytes),
     roots: allowlistRoots,
-    categories: categoryNames
+    categories: categoryNames,
+    targets: targetNames
   }
+  const preflightEvidence = mergePreflightEvidence(candidates)
 
   return {
     summary: t(language, hasReviewItems ? 'trust.summary.review' : 'trust.summary.recommended', params),
@@ -254,9 +289,11 @@ function buildTrustReport(
     summaryParams: params,
     evidence: [
       evidenceItem(language, 'trust.evidence.scan.label', 'trust.evidence.scan.detail', 'safe', params),
+      evidenceItem(language, 'trust.evidence.target.label', 'trust.evidence.target.detail', 'safe', params),
       evidenceItem(language, 'trust.evidence.allowlist.label', 'trust.evidence.allowlist.detail', 'safe', params),
       evidenceItem(language, 'trust.evidence.snapshot.label', 'trust.evidence.snapshot.detail', 'safe', params),
-      evidenceItem(language, 'trust.evidence.symlink.label', 'trust.evidence.symlink.detail', 'safe', params)
+      evidenceItem(language, 'trust.evidence.symlink.label', 'trust.evidence.symlink.detail', 'safe', params),
+      ...preflightEvidence
     ],
     guarantees: [
       evidenceItem(language, 'trust.guarantee.trash.label', 'trust.guarantee.trash.detail', 'safe', params),
@@ -272,6 +309,21 @@ function buildTrustReport(
     recoveryKey: 'trust.recovery.trash',
     recoveryParams: params
   }
+}
+
+function mergePreflightEvidence(candidates: InternalCandidate[]): TrustEvidenceItem[] {
+  const seen = new Set<string>()
+  const merged: TrustEvidenceItem[] = []
+  for (const candidate of candidates) {
+    for (const item of candidate.preflightEvidence ?? []) {
+      const key = `${item.labelKey ?? item.label}:${item.detailKey ?? item.detail}:${JSON.stringify(item.detailParams ?? {})}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(item)
+      if (merged.length >= 8) return merged
+    }
+  }
+  return merged
 }
 
 function evidenceItem(

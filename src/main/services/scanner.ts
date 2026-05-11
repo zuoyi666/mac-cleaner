@@ -28,27 +28,16 @@ import type {
   RecommendationConfidence,
   RecommendationDecision,
   ScanBrief,
+  ProtectedPath,
   TrustEvidenceItem,
   TrashSummary
 } from '../../shared/types'
 import { t } from '../../shared/i18n'
 import { compactPathForDisplay } from './pathSafety'
 import { getDiskSummary } from './disk'
+import { cleanerTargets, type CleanerTarget, validateCleanerTargets } from './cleanerTargets'
+import { runSafetyGate } from './safetyGate'
 
-const DOWNLOAD_EXTENSIONS = new Set([
-  '.dmg',
-  '.pkg',
-  '.zip',
-  '.tar',
-  '.gz',
-  '.bz2',
-  '.xz',
-  '.rar',
-  '.7z',
-  '.iso'
-])
-
-const OLD_DOWNLOAD_DAYS = 30
 const TOP_LEVEL_MEASURE_CONCURRENCY = 4
 const MAX_CANDIDATE_SCAN_MS = 30_000
 const DEFAULT_STANDALONE_THRESHOLD_BYTES = 100 * 1024 * 1024
@@ -63,24 +52,10 @@ const RECOMMENDATION_MIN_BYTES = 100 * 1024 * 1024
 const LARGE_APP_MIN_BYTES = 1024 * 1024 * 1024
 const GIT_OBJECTS_MIN_BYTES = 250 * 1024 * 1024
 
-interface CategoryDefinition {
-  id: string
-  nameKey: string
-  descriptionKey: string
-  relativePaths: string[]
-  excludedRelativePaths?: string[]
-  kind: CleanupKind
-  safety: SafetyLevel
-  reasonKey: string
-  impactKey: string
-  actionLabelKey: string
-  includeFile?: (entryPath: string, stats: Awaited<ReturnType<typeof fs.lstat>>, now: Date) => boolean
-  directChildrenOnly?: boolean
-}
-
 export interface InternalCandidate extends CleanupCandidate {
   paths: string[]
   allowedRoot: string
+  homeDir?: string
   pathSnapshots: PathSnapshot[]
 }
 
@@ -96,6 +71,7 @@ export interface ScanOptions {
   now?: Date
   language?: AppLanguage
   mode?: ScanMode
+  protectedPaths?: ProtectedPath[]
   signal?: AbortSignal
   onProgress?: (progress: ScanProgress) => void
 }
@@ -128,6 +104,7 @@ interface MeasureContext {
   onProgress?: (progress: ScanProgress) => void
   scanId: string
   homeDir: string
+  protectedPaths: ProtectedPath[]
   language: AppLanguage
   timeoutIssuePaths: Set<string>
   timeoutReportPath?: string
@@ -150,106 +127,12 @@ type RecommendationWithoutAdvisory = Omit<
   'confidence' | 'decision' | 'evidence' | 'doNotTouch' | 'advisorSummary' | 'advisorSummaryKey' | 'advisorSummaryParams'
 >
 
-const makeCategories = (): CategoryDefinition[] => [
-  {
-    id: 'caches',
-    nameKey: 'category.caches.name',
-    descriptionKey: 'category.caches.description',
-    relativePaths: ['Library/Caches'],
-    kind: 'cache',
-    safety: 'safe',
-    reasonKey: 'candidate.cache.reason',
-    impactKey: 'candidate.cache.impact',
-    actionLabelKey: 'candidate.cache.action'
-  },
-  {
-    id: 'logs',
-    nameKey: 'category.logs.name',
-    descriptionKey: 'category.logs.description',
-    relativePaths: ['Library/Logs'],
-    excludedRelativePaths: ['Library/Logs/DiagnosticReports', 'Library/Logs/CrashReporter'],
-    kind: 'log',
-    safety: 'safe',
-    reasonKey: 'candidate.log.reason',
-    impactKey: 'candidate.log.impact',
-    actionLabelKey: 'candidate.log.action'
-  },
-  {
-    id: 'diagnostics',
-    nameKey: 'category.diagnostics.name',
-    descriptionKey: 'category.diagnostics.description',
-    relativePaths: ['Library/Logs/DiagnosticReports', 'Library/Logs/CrashReporter'],
-    kind: 'diagnostic',
-    safety: 'safe',
-    reasonKey: 'candidate.diagnostic.reason',
-    impactKey: 'candidate.diagnostic.impact',
-    actionLabelKey: 'candidate.diagnostic.action'
-  },
-  {
-    id: 'http-storage',
-    nameKey: 'category.http-storage.name',
-    descriptionKey: 'category.http-storage.description',
-    relativePaths: ['Library/HTTPStorages'],
-    kind: 'http-storage',
-    safety: 'confirm',
-    reasonKey: 'candidate.http-storage.reason',
-    impactKey: 'candidate.http-storage.impact',
-    actionLabelKey: 'candidate.http-storage.action'
-  },
-  {
-    id: 'saved-state',
-    nameKey: 'category.saved-state.name',
-    descriptionKey: 'category.saved-state.description',
-    relativePaths: ['Library/Saved Application State'],
-    kind: 'saved-state',
-    safety: 'confirm',
-    reasonKey: 'candidate.saved-state.reason',
-    impactKey: 'candidate.saved-state.impact',
-    actionLabelKey: 'candidate.saved-state.action'
-  },
-  {
-    id: 'downloads',
-    nameKey: 'category.downloads.name',
-    descriptionKey: 'category.downloads.description',
-    relativePaths: ['Downloads'],
-    kind: 'download-archive',
-    safety: 'confirm',
-    reasonKey: 'candidate.download-archive.reason',
-    impactKey: 'candidate.download-archive.impact',
-    actionLabelKey: 'candidate.download-archive.action',
-    directChildrenOnly: true,
-    includeFile: (entryPath, stats, now) => {
-      if (!stats.isFile()) return false
-      const extension = path.extname(entryPath).toLowerCase()
-      const ageMs = now.getTime() - stats.mtime.getTime()
-      return DOWNLOAD_EXTENSIONS.has(extension) && ageMs >= OLD_DOWNLOAD_DAYS * 24 * 60 * 60 * 1000
-    }
-  },
-  {
-    id: 'developer-caches',
-    nameKey: 'category.developer-caches.name',
-    descriptionKey: 'category.developer-caches.description',
-    relativePaths: [
-      'Library/Developer/Xcode/DerivedData',
-      'Library/Caches/Homebrew',
-      'Library/Caches/pip',
-      'Library/pnpm/store',
-      '.npm',
-      '.cache/yarn'
-    ],
-    kind: 'developer-cache',
-    safety: 'safe',
-    reasonKey: 'candidate.developer-cache.reason',
-    impactKey: 'candidate.developer-cache.impact',
-    actionLabelKey: 'candidate.developer-cache.action'
-  }
-]
-
 export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
   const homeDir = options.homeDir ?? os.homedir()
   const now = options.now ?? new Date()
   const language = options.language ?? 'zh-CN'
   const mode = options.mode ?? 'comprehensive'
+  const protectedPaths = options.protectedPaths ?? []
   const scanId = crypto.randomUUID()
   const issues: ScanIssue[] = []
   const candidates = new Map<string, InternalCandidate>()
@@ -272,7 +155,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     measuredBytes: 0
   })
 
-  const categoryDefinitions = makeCategories()
+  validateCleanerTargets()
+  const categoryDefinitions = cleanerTargets
   for (const [categoryIndex, category] of categoryDefinitions.entries()) {
     throwIfAborted(options.signal)
     const categoryCandidates: InternalCandidate[] = []
@@ -307,6 +191,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
           onProgress: options.onProgress,
           scanId,
           homeDir,
+          protectedPaths,
           language,
           timeoutIssuePaths
         }
@@ -332,6 +217,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     onProgress: options.onProgress,
     scanId,
     homeDir,
+    protectedPaths,
     language,
     timeoutIssuePaths
   })
@@ -348,6 +234,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       onProgress: options.onProgress,
       scanId,
       homeDir,
+      protectedPaths,
       language,
       timeoutIssuePaths
     })
@@ -370,6 +257,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
         onProgress: options.onProgress,
         scanId,
         homeDir,
+        protectedPaths,
         language,
         timeoutIssuePaths
       })
@@ -417,7 +305,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
 }
 
 async function discoverCandidatesForRoot(
-  category: CategoryDefinition,
+  category: CleanerTarget,
   root: string,
   homeDir: string,
   now: Date,
@@ -481,6 +369,37 @@ async function discoverCandidatesForRoot(
       return
     }
 
+    const safetyGate = await runSafetyGate({
+      targetPath: entryPath,
+      allowedRoot: root,
+      homeDir,
+      protectedPaths: ctx.protectedPaths,
+      language: ctx.language
+    })
+    if (!safetyGate.allowed) {
+      issues.push(
+        makeIssue(
+          entryPath,
+          safetyGate.blockReasonKey ?? 'preflight.blocked.outsideRoot.detail',
+          'info',
+          ctx.language,
+          safetyGate.blockReasonParams ?? {}
+        )
+      )
+      candidates.push(
+        makeBlockedCandidate(
+          category,
+          entryPath,
+          homeDir,
+          safetyGate.blockReasonKey ?? 'preflight.blocked.outsideRoot.detail',
+          safetyGate.blockReasonParams ?? {},
+          ctx,
+          safetyGate.evidence
+        )
+      )
+      return
+    }
+
     ctx.onProgress?.({
       scanId: ctx.scanId,
       stage: 'measuring',
@@ -505,7 +424,7 @@ async function discoverCandidatesForRoot(
       return
     }
 
-    candidates.push(makeCandidate(category, entryPath, root, homeDir, measured, ctx))
+    candidates.push(makeCandidate(category, safetyGate.normalizedPath, root, homeDir, measured, ctx, safetyGate.evidence))
   })
 
   return candidates.sort((a, b) => b.sizeBytes - a.sizeBytes)
@@ -1007,7 +926,12 @@ function makeRecommendationFromCandidate(candidate: CleanupCandidate, language: 
     actionLabel: candidate.actionLabel,
     actionLabelKey: candidate.actionLabelKey,
     explanation: candidate.explanation,
-    lastModified: candidate.lastModified
+    lastModified: candidate.lastModified,
+    targetId: candidate.targetId,
+    targetName: candidate.targetName,
+    targetNameKey: candidate.targetNameKey,
+    deletionMode: candidate.deletionMode,
+    preflightEvidence: candidate.preflightEvidence
   }, language)
 }
 
@@ -1038,7 +962,8 @@ function makeRecommendationFromInsight(insight: StorageInsight, language: AppLan
     actionLabel: t(language, 'recommendation.largeApp.action'),
     actionLabelKey: 'recommendation.largeApp.action',
     explanation: makeHumanExplanation(language, 'recommendation.largeApp.explanation', params),
-    lastModified: insight.lastModified
+    lastModified: insight.lastModified,
+    deletionMode: 'manual-tool'
   }, language)
 }
 
@@ -1102,8 +1027,15 @@ function makeMeasuredRecommendation({
     actionLabelKey,
     actionLabelParams: params,
     explanation: makeHumanExplanation(ctx.language, explanationKeyBase, params),
-    lastModified: measured.lastModified?.toISOString()
+    lastModified: measured.lastModified?.toISOString(),
+    deletionMode: recommendationDeletionMode(recommendedAction, canExecute)
   }, ctx.language)
+}
+
+function recommendationDeletionMode(action: RecommendationAction, canExecute: boolean): 'trash' | 'manual-tool' | 'reveal-only' {
+  if (action === 'move-to-trash' && canExecute) return 'trash'
+  if (action === 'run-safe-tool' || action === 'open-owner-app') return 'manual-tool'
+  return 'reveal-only'
 }
 
 function recommendationPriority(
@@ -1599,12 +1531,13 @@ function isPrivacyOrImportantPath(targetPath: string, homeDir: string): boolean 
 }
 
 function makeCandidate(
-  category: CategoryDefinition,
+  category: CleanerTarget,
   entryPath: string,
   allowedRoot: string,
   homeDir: string,
   measured: MeasuredPath,
-  ctx: MeasureContext
+  ctx: MeasureContext,
+  preflightEvidence: TrustEvidenceItem[]
 ): InternalCandidate {
   const title = path.basename(entryPath)
   const pathSnapshot: PathSnapshot = {
@@ -1624,7 +1557,7 @@ function makeCandidate(
     kind: category.kind,
     displayKind: 'single',
     safety: category.safety,
-    canClean: category.safety !== 'discouraged',
+    canClean: category.safety !== 'discouraged' && category.deletionMode === 'trash',
     sizeBytes: measured.sizeBytes,
     itemCount: measured.itemCount,
     pathCount: measured.pathCount,
@@ -1641,19 +1574,26 @@ function makeCandidate(
     actionLabel: t(ctx.language, category.actionLabelKey),
     actionLabelKey: category.actionLabelKey,
     lastModified: measured.lastModified?.toISOString(),
+    targetId: category.id,
+    targetName: t(ctx.language, category.nameKey),
+    targetNameKey: category.nameKey,
+    deletionMode: category.deletionMode,
+    preflightEvidence,
     paths: [entryPath],
     allowedRoot,
+    homeDir,
     pathSnapshots: [pathSnapshot]
   }
 }
 
 function makeBlockedCandidate(
-  category: CategoryDefinition,
+  category: CleanerTarget,
   root: string,
   homeDir: string,
   messageKey: string,
   messageParams: Record<string, string | number>,
-  ctx: MeasureContext
+  ctx: MeasureContext,
+  preflightEvidence: TrustEvidenceItem[] = []
 ): InternalCandidate {
   const categoryName = t(ctx.language, category.nameKey)
   const message = t(ctx.language, messageKey, messageParams)
@@ -1694,14 +1634,20 @@ function makeBlockedCandidate(
     blockedReason: message,
     blockedReasonKey: messageKey,
     blockedReasonParams: messageParams,
+    targetId: category.id,
+    targetName: categoryName,
+    targetNameKey: category.nameKey,
+    deletionMode: 'reveal-only',
+    preflightEvidence,
     paths: [root],
     allowedRoot: root,
+    homeDir,
     pathSnapshots: [pathSnapshot]
   }
 }
 
 function aggregateSmallCandidates(
-  category: CategoryDefinition,
+  category: CleanerTarget,
   candidates: InternalCandidate[],
   homeDir: string,
   language: AppLanguage
@@ -1736,14 +1682,14 @@ function aggregateSmallCandidates(
   return [...standalone, ...grouped].sort((left, right) => bignessScore(right) - bignessScore(left))
 }
 
-function shouldGroupCandidate(category: CategoryDefinition, candidate: InternalCandidate): boolean {
+function shouldGroupCandidate(category: CleanerTarget, candidate: InternalCandidate): boolean {
   if (!candidate.canClean || candidate.safety === 'discouraged') return false
   const threshold = category.id === 'downloads' ? DOWNLOAD_STANDALONE_THRESHOLD_BYTES : DEFAULT_STANDALONE_THRESHOLD_BYTES
   return candidate.sizeBytes < threshold
 }
 
 function makeGroupedCandidate(
-  category: CategoryDefinition,
+  category: CleanerTarget,
   items: InternalCandidate[],
   homeDir: string,
   language: AppLanguage
@@ -1806,10 +1752,31 @@ function makeGroupedCandidate(
     actionLabel: t(language, first.actionLabelKey),
     actionLabelKey: first.actionLabelKey,
     lastModified,
+    targetId: first.targetId,
+    targetName: first.targetName,
+    targetNameKey: first.targetNameKey,
+    deletionMode: first.deletionMode,
+    preflightEvidence: mergePreflightEvidence(sortedItems),
     paths,
     allowedRoot: first.allowedRoot,
+    homeDir: first.homeDir,
     pathSnapshots
   }
+}
+
+function mergePreflightEvidence(candidates: InternalCandidate[]): TrustEvidenceItem[] {
+  const seen = new Set<string>()
+  const merged: TrustEvidenceItem[] = []
+  for (const candidate of candidates) {
+    for (const item of candidate.preflightEvidence ?? []) {
+      const key = `${item.labelKey ?? item.label}:${item.detailKey ?? item.detail}:${JSON.stringify(item.detailParams ?? {})}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(item)
+      if (merged.length >= 8) return merged
+    }
+  }
+  return merged
 }
 
 function groupTitleKey(categoryId: string): string {
@@ -1844,7 +1811,7 @@ function formatBytesForMessage(bytes: number): string {
   return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`
 }
 
-function summarizeCategory(category: CategoryDefinition, candidates: InternalCandidate[], language: AppLanguage): CategorySummary {
+function summarizeCategory(category: CleanerTarget, candidates: InternalCandidate[], language: AppLanguage): CategorySummary {
   return {
     id: category.id,
     name: t(language, category.nameKey),
@@ -1892,7 +1859,16 @@ function classifyIssue(issue: ScanIssue): IssueGroupKind {
   }
   if (issue.messageKey === 'issue.measureTimeout') return 'timeout'
   if (issue.messageKey === 'issue.skipSymlink' || issue.messageKey === 'issue.skipSymlinkRoot') return 'symlink'
-  if (issue.messageKey === 'issue.skipProtectedPath' || issue.messageKey === 'issue.skipDifferentVolume') return 'protected'
+  if (
+    issue.messageKey === 'issue.skipProtectedPath' ||
+    issue.messageKey === 'issue.skipDifferentVolume' ||
+    issue.messageKey === 'preflight.blocked.protectedPath.detail' ||
+    issue.messageKey === 'preflight.blocked.forbiddenRoot.detail' ||
+    issue.messageKey === 'preflight.blocked.outsideRoot.detail' ||
+    issue.messageKey === 'preflight.blocked.crossVolume.detail'
+  ) {
+    return 'protected'
+  }
   return 'other'
 }
 
@@ -1961,7 +1937,7 @@ async function detectFullDiskAccessStatus(homeDir: string): Promise<FullDiskAcce
 }
 
 function stripInternalCandidate(candidate: InternalCandidate): CleanupCandidate {
-  const { paths: _paths, allowedRoot: _allowedRoot, pathSnapshots: _pathSnapshots, ...publicCandidate } = candidate
+  const { paths: _paths, allowedRoot: _allowedRoot, homeDir: _homeDir, pathSnapshots: _pathSnapshots, ...publicCandidate } = candidate
   return publicCandidate
 }
 
@@ -1975,7 +1951,7 @@ function hashPathSnapshots(snapshots: PathSnapshot[]): string {
   return crypto.createHash('sha256').update(JSON.stringify(snapshots)).digest('hex')
 }
 
-function isExcludedPath(entryPath: string, category: CategoryDefinition, homeDir: string): boolean {
+function isExcludedPath(entryPath: string, category: CleanerTarget, homeDir: string): boolean {
   return Boolean(
     category.excludedRelativePaths?.some((relativePath) => {
       const excludedRoot = path.join(homeDir, relativePath)

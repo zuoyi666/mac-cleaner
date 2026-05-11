@@ -9,6 +9,7 @@ import type {
   LocalUpdateProgress,
   LocalUpdateStatus,
   MacCleanerApi,
+  ProtectedPath,
   ScanProgress,
   ScanRequest,
   ScanSummary,
@@ -375,7 +376,8 @@ export const demoSummary: ScanSummary = {
       actionLabel: t('zh-CN', 'recommendation.gitGarbage.action'),
       actionLabelKey: 'recommendation.gitGarbage.action',
       explanation: makeDemoExplanation('zh-CN', 'recommendation.gitGarbage.explanation', { repoName: 'worldquant-alpha', tempCount: 2292, size: '29.5 GB' }),
-      lastModified: now
+      lastModified: now,
+      deletionMode: 'manual-tool'
     },
     {
       id: 'demo-rec-xcode-dyld',
@@ -408,7 +410,8 @@ export const demoSummary: ScanSummary = {
       actionLabel: t('zh-CN', 'recommendation.xcodeDyld.action'),
       actionLabelKey: 'recommendation.xcodeDyld.action',
       explanation: makeDemoExplanation('zh-CN', 'recommendation.xcodeDyld.explanation', { size: '6.6 GB' }),
-      lastModified: now
+      lastModified: now,
+      deletionMode: 'manual-tool'
     },
     {
       id: 'demo-rec-codex-sessions',
@@ -441,7 +444,8 @@ export const demoSummary: ScanSummary = {
       actionLabel: t('zh-CN', 'recommendation.codexSessions.action'),
       actionLabelKey: 'recommendation.codexSessions.action',
       explanation: makeDemoExplanation('zh-CN', 'recommendation.codexSessions.explanation', { size: '7.4 GB' }),
-      lastModified: now
+      lastModified: now,
+      deletionMode: 'reveal-only'
     }
   ],
   insights: [
@@ -541,6 +545,7 @@ export function createDemoApi(): MacCleanerApi {
   let updateListeners: Array<(progress: LocalUpdateProgress) => void> = []
   let languagePreference: AppLanguage | null = null
   let themePreference: ThemePreference | null = null
+  let protectedPaths: ProtectedPath[] = []
   const demoUpdateConfig: LocalUpdateConfig = {
     repoPath: '/Users/yizuo/Mac-Cleaner',
     installTarget: '/Users/yizuo/Desktop/Mac Cleaner.app'
@@ -728,6 +733,13 @@ export function createDemoApi(): MacCleanerApi {
       themePreference = nextThemePreference
       return themePreference
     },
+    async getProtectedPaths() {
+      return protectedPaths
+    },
+    async setProtectedPaths(nextProtectedPaths: ProtectedPath[]) {
+      protectedPaths = nextProtectedPaths
+      return protectedPaths
+    },
     onScanProgress(listener: (progress: ScanProgress) => void) {
       listeners = [...listeners, listener]
       return () => {
@@ -759,7 +771,8 @@ function makeDemoTrustReport(
     paths: operationPaths.length,
     bytes: formatBytesForMessage(totalBytes),
     roots: candidates.map((candidate) => candidate.pathPreview.split('/').slice(0, 3).join('/')).join(', '),
-    categories: candidates.map((candidate) => candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName).join(', ')
+    categories: candidates.map((candidate) => candidate.categoryNameKey ? t(language, candidate.categoryNameKey) : candidate.categoryName).join(', '),
+    targets: candidates.map((candidate) => candidate.targetNameKey ? t(language, candidate.targetNameKey) : candidate.targetName ?? candidate.categoryName).join(', ')
   }
   const item = (labelKey: string, detailKey: string, tone: 'safe' | 'confirm' | 'blocked' | 'info') => ({
     label: t(language, labelKey, params),
@@ -777,6 +790,7 @@ function makeDemoTrustReport(
     summaryParams: params,
     evidence: [
       item('trust.evidence.scan.label', 'trust.evidence.scan.detail', 'safe'),
+      item('trust.evidence.target.label', 'trust.evidence.target.detail', 'safe'),
       item('trust.evidence.allowlist.label', 'trust.evidence.allowlist.detail', 'safe'),
       item('trust.evidence.snapshot.label', 'trust.evidence.snapshot.detail', 'safe'),
       item('trust.evidence.symlink.label', 'trust.evidence.symlink.detail', 'safe')
@@ -835,6 +849,8 @@ function makeDemoRecommendationAdvisory(
 }
 
 function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCount' | 'pathSamples' | 'pathSnapshotHash' | 'estimateSource' | 'explanation'>): CleanupCandidate {
+  const targetNameKey = candidate.targetNameKey ?? candidate.categoryNameKey
+  const targetName = targetNameKey ? t('zh-CN', targetNameKey) : candidate.targetName ?? candidate.categoryName
   return {
     ...candidate,
     scanId: demoScanId,
@@ -843,7 +859,29 @@ function makeDemoCandidate(candidate: Omit<CleanupCandidate, 'scanId' | 'pathCou
     pathSamples: [candidate.pathPreview],
     pathSnapshotHash: `hash-${candidate.id}`,
     estimateSource: candidate.itemCount === 1 ? 'file-stat' : 'filesystem-walk',
-    explanation: makeDemoExplanation('zh-CN', candidateExplanationBase(candidate.kind))
+    explanation: makeDemoExplanation('zh-CN', candidateExplanationBase(candidate.kind)),
+    targetId: candidate.targetId ?? candidate.categoryId,
+    targetName,
+    targetNameKey,
+    deletionMode: candidate.deletionMode ?? 'trash',
+    preflightEvidence: candidate.preflightEvidence ?? [
+      {
+        label: t('zh-CN', 'preflight.allowedRoot.label', { root: candidate.pathPreview.split('/').slice(0, 3).join('/') }),
+        labelKey: 'preflight.allowedRoot.label',
+        labelParams: { root: candidate.pathPreview.split('/').slice(0, 3).join('/') },
+        detail: t('zh-CN', 'preflight.allowedRoot.detail', { root: candidate.pathPreview.split('/').slice(0, 3).join('/') }),
+        detailKey: 'preflight.allowedRoot.detail',
+        detailParams: { root: candidate.pathPreview.split('/').slice(0, 3).join('/') },
+        tone: 'safe'
+      },
+      {
+        label: t('zh-CN', 'preflight.symlink.label'),
+        labelKey: 'preflight.symlink.label',
+        detail: t('zh-CN', 'preflight.symlink.detail'),
+        detailKey: 'preflight.symlink.detail',
+        tone: 'safe'
+      }
+    ]
   }
 }
 

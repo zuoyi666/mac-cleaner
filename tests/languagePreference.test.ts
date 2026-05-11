@@ -7,9 +7,11 @@ import {
   getLanguageSettingsPath,
   readInstallTarget,
   readLanguagePreference,
+  readProtectedPaths,
   readThemePreference,
   writeInstallTarget,
   writeLanguagePreference,
+  writeProtectedPaths,
   writeThemePreference
 } from '../src/main/services/languagePreference'
 
@@ -72,6 +74,35 @@ describe('language preference settings', () => {
     expect(raw.updatedAt).toBe('2026-05-06T04:00:00.000Z')
   })
 
+  it('writes protected paths locally while preserving existing settings', async () => {
+    const homeDir = await makeHome()
+    const settingsPath = getLanguageSettingsPath(homeDir)
+    const protectedPath = path.join(homeDir, 'Projects', 'Important')
+
+    await writeLanguagePreference('zh-CN', settingsPath, new Date('2026-05-06T01:00:00Z'))
+    const saved = await writeProtectedPaths(
+      [
+        { id: '', path: protectedPath, reason: 'keep this project', createdAt: '' },
+        { id: 'blocked-home', path: homeDir, createdAt: '' },
+        { id: 'outside-home', path: '/Applications', createdAt: '' }
+      ],
+      settingsPath,
+      new Date('2026-05-06T02:00:00Z'),
+      homeDir
+    )
+
+    expect(saved).toEqual([
+      {
+        id: expect.stringMatching(/^protected-/),
+        path: protectedPath,
+        reason: 'keep this project',
+        createdAt: '2026-05-06T02:00:00.000Z'
+      }
+    ])
+    expect(await readLanguagePreference(settingsPath)).toBe('zh-CN')
+    expect(await readProtectedPaths(settingsPath, homeDir)).toEqual(saved)
+  })
+
   it('falls back safely when the settings file is missing, corrupted, or invalid', async () => {
     const settingsPath = await makeSettingsPath()
 
@@ -87,6 +118,7 @@ describe('language preference settings', () => {
 
     await fs.writeFile(settingsPath, JSON.stringify({ themePreference: 'unknown-theme' }), 'utf8')
     expect(await readThemePreference(settingsPath)).toBeNull()
+    expect(await readProtectedPaths(settingsPath)).toEqual([])
   })
 
   it('parses language and install target arguments for the local install script', async () => {

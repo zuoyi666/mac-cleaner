@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, MacCleanerApi, ScanProgress, ScanRequest, ThemePreference } from '../shared/types'
+import type {
+  AppLanguage,
+  LocalUpdateConfig,
+  LocalUpdateProgress,
+  MacCleanerApi,
+  ProtectedPath,
+  ScanProgress,
+  ScanRequest,
+  ThemePreference
+} from '../shared/types'
 
 const api: MacCleanerApi = {
   scan: (request?: AppLanguage | ScanRequest) => ipcRenderer.invoke('mac-cleaner:scan', validateScanRequest(request)),
@@ -21,6 +30,8 @@ const api: MacCleanerApi = {
   setLanguagePreference: (language: AppLanguage) => ipcRenderer.invoke('mac-cleaner:set-language-preference', validateRequiredLanguage(language)),
   getThemePreference: () => ipcRenderer.invoke('mac-cleaner:get-theme-preference'),
   setThemePreference: (themePreference: ThemePreference) => ipcRenderer.invoke('mac-cleaner:set-theme-preference', validateThemePreference(themePreference)),
+  getProtectedPaths: () => ipcRenderer.invoke('mac-cleaner:get-protected-paths'),
+  setProtectedPaths: (paths: ProtectedPath[]) => ipcRenderer.invoke('mac-cleaner:set-protected-paths', validateProtectedPaths(paths)),
   onScanProgress: (listener: (progress: ScanProgress) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, progress: ScanProgress): void => listener(progress)
     ipcRenderer.on('mac-cleaner:scan-progress', wrapped)
@@ -104,6 +115,35 @@ function validateLocalUpdateConfig(config: Partial<LocalUpdateConfig>): Partial<
 function validatePathString(value: string): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 500 || !value.startsWith('/')) {
     throw new Error('Invalid path argument')
+  }
+  return value
+}
+
+function validateProtectedPaths(paths: ProtectedPath[]): ProtectedPath[] {
+  if (!Array.isArray(paths) || paths.length > 100) {
+    throw new Error('Invalid protected path list')
+  }
+  return paths.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('Invalid protected path')
+    }
+    return {
+      id: typeof item.id === 'string' && item.id.length <= 100 ? item.id : '',
+      path: validateProtectedPathString(item.path),
+      reason: typeof item.reason === 'string' && item.reason.length <= 160 ? item.reason : undefined,
+      createdAt: typeof item.createdAt === 'string' && item.createdAt.length <= 40 ? item.createdAt : ''
+    }
+  })
+}
+
+function validateProtectedPathString(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 500 ||
+    (!value.startsWith('/') && value !== '~' && !value.startsWith('~/'))
+  ) {
+    throw new Error('Invalid protected path argument')
   }
   return value
 }

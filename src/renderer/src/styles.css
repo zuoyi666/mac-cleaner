@@ -324,6 +324,63 @@ code {
   margin-top: 5px;
 }
 
+.protected-paths-box {
+  display: grid;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.protected-paths-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.protected-path-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.protected-path-input input {
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.protected-path-list {
+  display: grid;
+  gap: 6px;
+  max-height: 126px;
+  overflow: auto;
+}
+
+.protected-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 6px;
+}
+
+.protected-path-row code {
+  min-width: 0;
+  padding: 6px 7px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .workspace {
   display: grid;
   grid-template-rows: auto auto auto auto minmax(0, 1fr);

@@ -26,7 +26,32 @@ describe('scanStorage', () => {
     expect(candidate?.safety).toBe('safe')
     expect(candidate?.sizeBytes).toBe(128)
     expect(candidate?.pathPreview).toBe('~/Library/Caches/com.example.app')
+    expect(candidate?.targetId).toBe('caches')
+    expect(candidate?.deletionMode).toBe('trash')
+    expect(candidate?.preflightEvidence?.map((item) => item.labelKey)).toContain('preflight.allowedRoot.label')
     expect(run.summary.issues.some((issue) => issue.message.includes('符号链接'))).toBe(true)
+  })
+
+  it('keeps user-protected directories out of cleanup candidates', async () => {
+    const homeDir = await makeHome()
+    const protectedDir = path.join(homeDir, 'Library', 'Caches', 'com.example.keep')
+    await writeSizedFile(path.join(protectedDir, 'cache.bin'), 128)
+
+    const run = await scanStorage({
+      homeDir,
+      now: fixedNow,
+      mode: 'standard',
+      protectedPaths: [{ id: 'keep', path: protectedDir, createdAt: fixedNow.toISOString() }]
+    })
+    const blocked = run.summary.candidates.find((candidate) => candidate.pathPreview === '~/Library/Caches/com.example.keep')
+
+    expect(blocked?.safety).toBe('discouraged')
+    expect(blocked?.canClean).toBe(false)
+    expect(blocked?.blockedReasonKey).toBe('preflight.blocked.protectedPath.detail')
+    expect(blocked?.targetId).toBe('caches')
+    expect(blocked?.deletionMode).toBe('reveal-only')
+    expect(blocked?.preflightEvidence?.some((item) => item.detailKey === 'preflight.blocked.protectedPath.detail')).toBe(true)
+    expect(run.summary.issueGroups.find((group) => group.kind === 'protected')?.pathSamples).toContain('~/Library/Caches/com.example.keep')
   })
 
   it('reports a timed-out large directory once instead of flooding every child path', async () => {
