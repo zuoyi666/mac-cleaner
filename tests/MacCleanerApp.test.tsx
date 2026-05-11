@@ -180,6 +180,8 @@ describe('MacCleanerApp', () => {
 
     await user.click(screen.getByRole('button', { name: /扫描存储空间/ }))
     expect(await screen.findByText('这次我看清了什么')).toBeInTheDocument()
+    expect(screen.getByText('读取范围说明')).toBeInTheDocument()
+    expect(screen.getByText(/这次已读过/)).toBeInTheDocument()
     expect(screen.getByText('目录索引')).toBeInTheDocument()
     expect(screen.getByText('待移到废纸篓清单')).toBeInTheDocument()
     expect(screen.getAllByText('可以放心移到废纸篓').length).toBeGreaterThan(0)
@@ -427,7 +429,7 @@ describe('MacCleanerApp', () => {
     expect(screen.getAllByText('别一键删')).not.toHaveLength(0)
     expect(screen.getByText('权限与安全边界')).toBeInTheDocument()
     expect(screen.getByText(/不会申请管理员权限/)).toBeInTheDocument()
-    expect(screen.getByText(/只把看得清、规则明确的项目/)).toBeInTheDocument()
+    expect(screen.getByText(/固定安全目录/)).toBeInTheDocument()
     screen.getAllByRole('button', { name: /不可清理/ }).forEach((button) => {
       expect(button).toBeDisabled()
     })
@@ -480,7 +482,7 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={multiIssueSummary} />)
 
-    const issueSummary = screen.getByText(/2 个路径没有纳入自动清理判断/)
+    const issueSummary = screen.getByText(/2 类读取边界说明/)
     await user.click(issueSummary)
 
     const issueDetails = issueSummary.closest('details')
@@ -489,9 +491,9 @@ describe('MacCleanerApp', () => {
     expect(screen.getByRole('region', { name: '可滚动的扫描问题详情' })).toHaveClass('issue-details-body')
     expect(screen.getByRole('region', { name: '可滚动的扫描问题详情' })).toHaveAttribute('tabindex', '0')
     expect(screen.getByText(/不是失败列表/)).toBeInTheDocument()
-    expect(screen.getByText(/想成功读取/)).toBeInTheDocument()
-    expect(screen.getByText(/符号链接没有当作真实目录重复统计/)).toBeInTheDocument()
-    expect(screen.getByText(/想确认指向哪里/)).toBeInTheDocument()
+    expect(screen.getByText(/想让它读得更全/)).toBeInTheDocument()
+    expect(screen.getByText(/符号链接已识别/)).toBeInTheDocument()
+    expect(screen.getByText(/想确认它指向哪里/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /开启 Full Disk Access/ }))
 
@@ -512,10 +514,10 @@ describe('MacCleanerApp', () => {
 
     render(<MacCleanerApp api={api} initialSummary={grantedSummary} />)
 
-    await user.click(screen.getByText(/1 个路径没有纳入自动清理判断/))
+    await user.click(screen.getByText(/1 类读取边界说明/))
 
     expect(screen.queryByRole('button', { name: /开启 Full Disk Access/ })).not.toBeInTheDocument()
-    expect(screen.getByText(/Full Disk Access 看起来已开启/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Full Disk Access 看起来已开启/).length).toBeGreaterThan(0)
     expect(api.openFullDiskAccessSettings).not.toHaveBeenCalled()
   })
 
