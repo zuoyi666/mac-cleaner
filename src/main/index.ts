@@ -3,16 +3,27 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AppLanguage, LocalUpdateConfig, LocalUpdateProgress, ScanMode, ScanProgress, ScanRequest, ThemePreference } from '../shared/types'
+import type {
+  AppLanguage,
+  LocalUpdateConfig,
+  LocalUpdateProgress,
+  ProtectedPath,
+  ScanMode,
+  ScanProgress,
+  ScanRequest,
+  ThemePreference
+} from '../shared/types'
 import { t } from '../shared/i18n'
 import { createCleanupManager } from './services/cleanup'
 import {
   isAppLanguage,
   isThemePreference,
   readLanguagePreference,
+  readProtectedPaths,
   readThemePreference,
   writeInstallTarget,
   writeLanguagePreference,
+  writeProtectedPaths,
   writeThemePreference
 } from './services/languagePreference'
 import { createLocalUpdateService } from './services/localUpdate'
@@ -41,6 +52,9 @@ const cleanupManager = createCleanupManager(
     },
     getTrashPath() {
       return currentScanRun ? path.join(currentScanRun.summary.homeDir, '.Trash') : undefined
+    },
+    getProtectedPaths() {
+      return readProtectedPaths()
     }
   },
   shell.trashItem
@@ -125,6 +139,7 @@ function registerIpcHandlers(): void {
       currentScanRun = await scanStorage({
         language,
         mode: scanRequest.mode ?? 'comprehensive',
+        protectedPaths: await readProtectedPaths(),
         signal: abortController.signal,
         onProgress: emitProgress
       })
@@ -321,6 +336,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mac-cleaner:set-theme-preference', async (_event, themePreferenceInput: unknown) => {
     return writeThemePreference(validateThemePreference(themePreferenceInput))
   })
+
+  ipcMain.handle('mac-cleaner:get-protected-paths', async () => {
+    return readProtectedPaths()
+  })
+
+  ipcMain.handle('mac-cleaner:set-protected-paths', async (_event, protectedPathsInput: unknown) => {
+    return writeProtectedPaths(validateProtectedPaths(protectedPathsInput))
+  })
 }
 
 function getRecommendation(recommendationId: string, language: AppLanguage) {
@@ -407,6 +430,34 @@ function validateRequiredLanguage(value: unknown): AppLanguage {
 function validateThemePreference(value: unknown): ThemePreference {
   if (isThemePreference(value)) return value
   throw new Error(t('zh-CN', 'main.invalidParam', { fieldName: 'themePreference' }))
+}
+
+function validateProtectedPaths(value: unknown): ProtectedPath[] {
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new Error(t('zh-CN', 'main.invalidParam', { fieldName: 'protectedPaths' }))
+  }
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(t('zh-CN', 'main.invalidParam', { fieldName: 'protectedPath' }))
+    }
+    const input = item as Record<string, unknown>
+    return {
+      id: typeof input.id === 'string' && input.id.length <= 100 ? input.id : '',
+      path: validatePathLikeString(input.path, 'protectedPath'),
+      reason: typeof input.reason === 'string' && input.reason.length <= 160 ? input.reason : undefined,
+      createdAt: typeof input.createdAt === 'string' && input.createdAt.length <= 40 ? input.createdAt : ''
+    }
+  })
+}
+
+function validatePathLikeString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 500) {
+    throw new Error(t('zh-CN', 'main.invalidParam', { fieldName }))
+  }
+  if (!path.isAbsolute(value) && value !== '~' && !value.startsWith('~/')) {
+    throw new Error(t('zh-CN', 'main.invalidParam', { fieldName }))
+  }
+  return value
 }
 
 async function revealPath(targetPath: string) {

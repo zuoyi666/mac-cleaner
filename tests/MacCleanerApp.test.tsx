@@ -76,6 +76,8 @@ function makeApi(overrides: Partial<MacCleanerApi> = {}): MacCleanerApi {
     setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
     getThemePreference: vi.fn().mockResolvedValue(null),
     setThemePreference: vi.fn().mockImplementation(async (themePreference: ThemePreference) => themePreference),
+    getProtectedPaths: vi.fn().mockResolvedValue([]),
+    setProtectedPaths: vi.fn().mockImplementation(async (paths) => paths),
     onScanProgress: vi.fn(() => () => undefined),
     onLocalUpdateProgress: vi.fn(() => () => undefined),
     ...overrides
@@ -172,6 +174,8 @@ describe('MacCleanerApp', () => {
       setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       getThemePreference: vi.fn().mockResolvedValue(null),
       setThemePreference: vi.fn().mockImplementation(async (themePreference: ThemePreference) => themePreference),
+      getProtectedPaths: vi.fn().mockResolvedValue([]),
+      setProtectedPaths: vi.fn().mockImplementation(async (paths) => paths),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
@@ -198,6 +202,8 @@ describe('MacCleanerApp', () => {
     await user.click(screen.getAllByText(firstCandidate.title)[0])
     expect(screen.getByText('本地 · 只读 · 不上传')).toBeInTheDocument()
     expect(screen.getAllByText('我的判断').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('命中的清理规则').length).toBeGreaterThan(0)
+    expect(screen.getByText('安全检查结果')).toBeInTheDocument()
     expect(screen.getAllByText('删了会怎样')).not.toHaveLength(0)
     expect(screen.getAllByText('什么时候别删')).not.toHaveLength(0)
     expect(screen.getAllByText(/可重建|开发工具缓存/).length).toBeGreaterThan(0)
@@ -226,6 +232,35 @@ describe('MacCleanerApp', () => {
     await waitFor(() => {
       expect(api.moveToTrash).toHaveBeenCalledWith([firstCandidate.id], 'confirm-1', 'zh-CN')
     })
+  })
+
+  it('saves protected paths from local settings', async () => {
+    const user = userEvent.setup()
+    const protectedPath = '/Users/yizuo/Projects/important-work'
+    const setProtectedPaths = vi.fn().mockResolvedValue([
+      {
+        id: 'protected-1',
+        path: protectedPath,
+        createdAt: '2026-05-11T00:00:00.000Z'
+      }
+    ])
+    const api = makeApi({ setProtectedPaths })
+
+    render(<MacCleanerApp api={api} initialSummary={null} />)
+
+    expect(await screen.findByText('我不想让你碰的目录')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('要保护的目录路径'), protectedPath)
+    await user.click(screen.getByRole('button', { name: '保护' }))
+
+    await waitFor(() => {
+      expect(setProtectedPaths).toHaveBeenCalledWith([
+        expect.objectContaining({
+          path: protectedPath
+        })
+      ])
+    })
+    expect(await screen.findByText(protectedPath)).toBeInTheDocument()
+    expect(screen.getByText('保护目录已保存到本机。')).toBeInTheDocument()
   })
 
   it('can select multiple cleanable rows before opening one confirmation', async () => {
@@ -287,6 +322,8 @@ describe('MacCleanerApp', () => {
       setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       getThemePreference: vi.fn().mockResolvedValue(null),
       setThemePreference: vi.fn().mockImplementation(async (themePreference: ThemePreference) => themePreference),
+      getProtectedPaths: vi.fn().mockResolvedValue([]),
+      setProtectedPaths: vi.fn().mockImplementation(async (paths) => paths),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }
@@ -689,6 +726,8 @@ describe('MacCleanerApp', () => {
       setLanguagePreference: vi.fn().mockImplementation(async (language: AppLanguage) => language),
       getThemePreference: vi.fn().mockResolvedValue(null),
       setThemePreference: vi.fn().mockImplementation(async (themePreference: ThemePreference) => themePreference),
+      getProtectedPaths: vi.fn().mockResolvedValue([]),
+      setProtectedPaths: vi.fn().mockImplementation(async (paths) => paths),
       onScanProgress: vi.fn(() => () => undefined),
       onLocalUpdateProgress: vi.fn(() => () => undefined)
     }

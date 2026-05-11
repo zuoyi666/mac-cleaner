@@ -34,6 +34,7 @@ import type {
   LocalUpdateProgress,
   LocalUpdateStatus,
   MacCleanerApi,
+  ProtectedPath,
   RevealResult,
   SafetyLevel,
   ScanProgress,
@@ -154,6 +155,8 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage())
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readStoredThemePreference())
+  const [protectedPaths, setProtectedPaths] = useState<ProtectedPath[]>([])
+  const [protectedPathInput, setProtectedPathInput] = useState('')
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<'recommended' | 'size-desc' | 'risk-desc' | 'name-asc'>('recommended')
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -201,6 +204,22 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     document.documentElement.dataset.theme = activeTheme
     document.documentElement.style.colorScheme = 'light'
   }, [activeTheme])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadProtectedPaths(): Promise<void> {
+      try {
+        const savedProtectedPaths = await macCleaner.getProtectedPaths()
+        if (!cancelled) setProtectedPaths(savedProtectedPaths)
+      } catch {
+        if (!cancelled) setProtectedPaths([])
+      }
+    }
+    void loadProtectedPaths()
+    return () => {
+      cancelled = true
+    }
+  }, [macCleaner])
 
   useEffect(() => {
     if (nativeBridgeMissing) {
@@ -358,7 +377,10 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   const visibleSafeCandidateIds = useMemo(
     () =>
       checklistItems.flatMap((item) =>
-        item.source === 'candidate' && item.candidate.canClean && item.candidate.safety === 'safe'
+        item.source === 'candidate' &&
+        item.candidate.canClean &&
+        item.candidate.safety === 'safe' &&
+        (item.candidate.deletionMode ?? 'trash') === 'trash'
           ? [item.candidate.id]
           : []
       ),
@@ -370,7 +392,13 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
   )
   const selectedSafeCandidates = useMemo(() => {
     const selected = new Set(selectedCleanableIds)
-    return candidates.filter((candidate) => selected.has(candidate.id) && candidate.canClean && candidate.safety === 'safe')
+    return candidates.filter(
+      (candidate) =>
+        selected.has(candidate.id) &&
+        candidate.canClean &&
+        candidate.safety === 'safe' &&
+        (candidate.deletionMode ?? 'trash') === 'trash'
+    )
   }, [candidates, selectedCleanableIds])
   const pendingTrashStats = useMemo(
     () => ({
@@ -511,6 +539,40 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
       await macCleaner.setThemePreference(nextThemePreference)
     } catch (preferenceError) {
       setError(formatError(preferenceError))
+    }
+  }
+
+  async function addProtectedPath(): Promise<void> {
+    const nextPath = protectedPathInput.trim()
+    if (!nextPath) return
+    setError(null)
+    try {
+      const nextProtectedPaths = await macCleaner.setProtectedPaths([
+        ...protectedPaths,
+        {
+          id: '',
+          path: nextPath,
+          createdAt: new Date().toISOString()
+        }
+      ])
+      setProtectedPaths(nextProtectedPaths)
+      setProtectedPathInput('')
+      setNotice(t(language, summary ? 'ui.protectedPathsUpdatedRescan' : 'ui.protectedPathsUpdated'))
+    } catch (protectedPathError) {
+      setNotice(null)
+      setError(formatError(protectedPathError))
+    }
+  }
+
+  async function removeProtectedPath(pathId: string): Promise<void> {
+    setError(null)
+    try {
+      const nextProtectedPaths = await macCleaner.setProtectedPaths(protectedPaths.filter((item) => item.id !== pathId))
+      setProtectedPaths(nextProtectedPaths)
+      setNotice(t(language, summary ? 'ui.protectedPathsUpdatedRescan' : 'ui.protectedPathsUpdated'))
+    } catch (protectedPathError) {
+      setNotice(null)
+      setError(formatError(protectedPathError))
     }
   }
 
@@ -702,6 +764,50 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 <button className={language === 'en-US' ? 'active' : ''} onClick={() => void changeLanguage('en-US')}>
                   {t(language, 'language.en')}
                 </button>
+              </div>
+            </div>
+            <div className="protected-paths-box">
+              <div className="protected-paths-heading">
+                <strong>{t(language, 'ui.protectedPathsTitle')}</strong>
+                <span>{t(language, 'ui.protectedPathsSubtitle')}</span>
+              </div>
+              <label className="protected-path-input">
+                <input
+                  value={protectedPathInput}
+                  onChange={(event) => setProtectedPathInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void addProtectedPath()
+                    }
+                  }}
+                  placeholder={t(language, 'ui.protectedPathPlaceholder')}
+                  aria-label={t(language, 'ui.protectedPathInputAria')}
+                />
+                <button className="secondary-button mini" type="button" onClick={() => void addProtectedPath()}>
+                  <ShieldCheck size={14} />
+                  {t(language, 'ui.protectedPathAdd')}
+                </button>
+              </label>
+              <div className="protected-path-list">
+                {protectedPaths.length ? (
+                  protectedPaths.map((item) => (
+                    <div className="protected-path-row" key={item.id}>
+                      <code>{item.path}</code>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={t(language, 'ui.protectedPathRemove')}
+                        aria-label={`${t(language, 'ui.protectedPathRemove')}: ${item.path}`}
+                        onClick={() => void removeProtectedPath(item.id)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <span>{t(language, 'ui.protectedPathsEmpty')}</span>
+                )}
               </div>
             </div>
             <div className="local-update-box">
@@ -1210,7 +1316,7 @@ function ChecklistRow({
       onSelect()
     }
   }
-  const canClean = item.source === 'candidate' && item.candidate.canClean
+  const canClean = item.source === 'candidate' && item.candidate.canClean && (item.candidate.deletionMode ?? 'trash') === 'trash'
   const canShowPath = item.source === 'candidate' || Boolean(item.recommendation.pathToken)
   const title = checklistItemTitle(item, language)
   const Icon = checklistItemIcon(item)
@@ -1303,9 +1409,12 @@ function ChecklistInspector({
   const title = checklistItemTitle(item, language)
   const tone = checklistItemTone(item)
   const Icon = checklistItemIcon(item)
-  const canPrimary = item.source === 'candidate' ? item.candidate.canClean : true
+  const canPrimary = item.source === 'candidate'
+    ? item.candidate.canClean && (item.candidate.deletionMode ?? 'trash') === 'trash'
+    : true
   const movePaths = checklistItemPathSamples(item)
-  const canMoveFromApp = item.source === 'candidate' && item.candidate.canClean
+  const canMoveFromApp = item.source === 'candidate' && item.candidate.canClean && (item.candidate.deletionMode ?? 'trash') === 'trash'
+  const preflightEvidence = checklistItemPreflightEvidence(item, language)
 
   return (
     <aside className="inspector plain-inspector review-sheet">
@@ -1342,6 +1451,15 @@ function ChecklistInspector({
           <strong>{checklistItemLastModified(item, language)}</strong>
         </div>
       </div>
+
+      <section className="impact-box target-rule-box">
+        <span>{t(language, 'ui.targetRule')}</span>
+        <p>{checklistItemTargetDescription(item, language)}</p>
+        <span>{t(language, 'ui.deletionMode')}</span>
+        <p>{t(language, `deletionMode.${checklistItemDeletionMode(item)}`)}</p>
+      </section>
+
+      <TrustEvidenceSection title={t(language, 'ui.preflightChecks')} items={preflightEvidence} language={language} />
 
       {item.source === 'candidate' ? (
         <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={candidateTrustEvidence(item.candidate, language)} language={language} />
@@ -2694,7 +2812,7 @@ function buildChecklistSections(
       titleKey: 'ui.checklistSection.recommended-cleanup.title',
       descriptionKey: 'ui.checklistSection.recommended-cleanup.description',
       items: candidates
-        .filter((candidate) => candidate.canClean && candidate.safety === 'safe')
+        .filter((candidate) => candidate.canClean && candidate.safety === 'safe' && (candidate.deletionMode ?? 'trash') === 'trash')
         .map((candidate) => makeCandidateChecklistItem(candidate, 'recommended-cleanup')),
       totalBytes: 0
     },
@@ -2704,7 +2822,7 @@ function buildChecklistSections(
       descriptionKey: 'ui.checklistSection.review-first.description',
       items: [
         ...candidates
-          .filter((candidate) => candidate.canClean && candidate.safety === 'confirm')
+          .filter((candidate) => candidate.canClean && candidate.safety === 'confirm' && (candidate.deletionMode ?? 'trash') === 'trash')
           .map((candidate) => makeCandidateChecklistItem(candidate, 'review-first')),
         ...recommendations
           .filter((recommendation) => recommendation.decision === 'review-first' && !recommendationOverlapsCandidates(recommendation, seenCandidateIds))
@@ -2727,7 +2845,7 @@ function buildChecklistSections(
       descriptionKey: 'ui.checklistSection.do-not-delete.description',
       items: [
         ...candidates
-          .filter((candidate) => !candidate.canClean || candidate.safety === 'discouraged')
+          .filter((candidate) => !candidate.canClean || candidate.safety === 'discouraged' || (candidate.deletionMode ?? 'trash') !== 'trash')
           .map((candidate) => makeCandidateChecklistItem(candidate, 'do-not-delete')),
         ...recommendations
           .filter((recommendation) => recommendation.decision === 'do-not-delete' && !recommendationOverlapsCandidates(recommendation, seenCandidateIds))
@@ -2891,8 +3009,51 @@ function checklistItemPathSamples(item: ChecklistItem): string[] {
   return (samples.length ? samples : [fallback]).slice(0, 8)
 }
 
+function checklistItemTargetName(item: ChecklistItem, language: AppLanguage): string {
+  if (item.source === 'candidate') {
+    return item.candidate.targetNameKey
+      ? t(language, item.candidate.targetNameKey)
+      : item.candidate.targetName ?? localizeCandidateCategoryName(item.candidate, language)
+  }
+  return item.recommendation.targetNameKey
+    ? t(language, item.recommendation.targetNameKey)
+    : item.recommendation.targetName ?? t(language, `ui.recommendationKind.${item.recommendation.kind}`)
+}
+
+function checklistItemDeletionMode(item: ChecklistItem): 'trash' | 'manual-tool' | 'reveal-only' {
+  return item.source === 'candidate'
+    ? item.candidate.deletionMode ?? 'trash'
+    : item.recommendation.deletionMode ?? (item.recommendation.canExecute ? 'trash' : 'reveal-only')
+}
+
+function checklistItemTargetDescription(item: ChecklistItem, language: AppLanguage): string {
+  return t(language, 'ui.targetRuleDescription', {
+    target: checklistItemTargetName(item, language),
+    id: item.source === 'candidate' ? item.candidate.targetId ?? item.candidate.categoryId : item.recommendation.targetId ?? item.recommendation.kind
+  })
+}
+
+function checklistItemPreflightEvidence(item: ChecklistItem, language: AppLanguage): TrustEvidenceItem[] {
+  const evidence = item.source === 'candidate' ? item.candidate.preflightEvidence : item.recommendation.preflightEvidence
+  if (evidence?.length) return evidence
+  return [
+    {
+      label: t(language, 'ui.preflightFallbackLabel'),
+      detail: t(language, 'ui.preflightFallbackDetail'),
+      tone: 'info'
+    }
+  ]
+}
+
 function candidateTrustEvidence(candidate: CleanupCandidate, language: AppLanguage): TrustEvidenceItem[] {
   return [
+    {
+      label: t(language, 'trust.evidence.target.label'),
+      detail: t(language, 'trust.evidence.target.detail', {
+        targets: candidate.targetNameKey ? t(language, candidate.targetNameKey) : candidate.targetName ?? localizeCandidateCategoryName(candidate, language)
+      }),
+      tone: 'safe'
+    },
     {
       label: t(language, 'trust.evidence.scan.label'),
       detail: t(language, 'trust.evidence.scan.detail', { count: candidate.pathCount.toLocaleString(language) }),
@@ -3071,6 +3232,8 @@ function createUnavailableApi(): MacCleanerApi {
     setLanguagePreference: async (language) => language,
     getThemePreference: async () => null,
     setThemePreference: async (themePreference) => themePreference,
+    getProtectedPaths: async () => [],
+    setProtectedPaths: async (paths) => paths,
     onScanProgress: () => () => undefined,
     onLocalUpdateProgress: () => () => undefined
   }

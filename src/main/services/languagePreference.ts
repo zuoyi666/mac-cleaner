@@ -1,12 +1,14 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { AppLanguage, ThemePreference } from '../../shared/types'
+import type { AppLanguage, ProtectedPath, ThemePreference } from '../../shared/types'
+import { normalizeProtectedPaths } from './safetyGate'
 
 interface LanguageSettings {
   language?: unknown
   installTarget?: unknown
   themePreference?: unknown
+  protectedPaths?: unknown
   updatedAt?: unknown
 }
 
@@ -47,6 +49,20 @@ export async function readThemePreference(settingsPath = getLanguageSettingsPath
   }
 }
 
+export async function readProtectedPaths(
+  settingsPath = getLanguageSettingsPath(),
+  homeDir = os.homedir()
+): Promise<ProtectedPath[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as LanguageSettings
+    return Array.isArray(parsed.protectedPaths)
+      ? normalizeProtectedPaths(parsed.protectedPaths as ProtectedPath[], homeDir)
+      : []
+  } catch {
+    return []
+  }
+}
+
 export async function writeLanguagePreference(
   language: AppLanguage,
   settingsPath = getLanguageSettingsPath(),
@@ -82,6 +98,17 @@ export async function writeThemePreference(
   }
   await writeSettings({ themePreference }, settingsPath, now)
   return themePreference
+}
+
+export async function writeProtectedPaths(
+  protectedPaths: ProtectedPath[],
+  settingsPath = getLanguageSettingsPath(),
+  now = new Date(),
+  homeDir = os.homedir()
+): Promise<ProtectedPath[]> {
+  const normalized = normalizeProtectedPaths(protectedPaths, homeDir, now)
+  await writeSettings({ protectedPaths: normalized }, settingsPath, now)
+  return normalized
 }
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
