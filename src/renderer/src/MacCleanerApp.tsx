@@ -368,6 +368,18 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
     () => visibleSafeCandidateIds.filter((candidateId) => selectedIds.has(candidateId)),
     [visibleSafeCandidateIds, selectedIds]
   )
+  const selectedSafeCandidates = useMemo(() => {
+    const selected = new Set(selectedCleanableIds)
+    return candidates.filter((candidate) => selected.has(candidate.id) && candidate.canClean && candidate.safety === 'safe')
+  }, [candidates, selectedCleanableIds])
+  const pendingTrashStats = useMemo(
+    () => ({
+      count: selectedSafeCandidates.length,
+      bytes: selectedSafeCandidates.reduce((sum, candidate) => sum + candidate.sizeBytes, 0),
+      paths: selectedSafeCandidates.reduce((sum, candidate) => sum + candidate.pathCount, 0)
+    }),
+    [selectedSafeCandidates]
+  )
   const usedPercent = summary?.disk.totalBytes
     ? Math.round((summary.disk.usedBytes / summary.disk.totalBytes) * 100)
     : 0
@@ -784,36 +796,31 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           </div>
         )}
 
-        <section className="plain-summary" aria-label={t(language, 'ui.storageOverview')}>
-          <div>
+        <section className="scan-understanding" aria-label={t(language, 'ui.scanUnderstandingTitle')}>
+          <div className="scan-understanding-intro">
             <span>{t(language, 'ui.summaryDisk')}</span>
-            <strong>{summary?.disk.mountPath ?? 'Macintosh HD'}</strong>
+            <strong>{t(language, 'ui.scanUnderstandingTitle')}</strong>
             <p>
               {summary
-                ? t(language, 'ui.summaryDiskUsage', {
+                ? t(language, 'ui.scanUnderstandingText', {
+                    disk: summary.disk.mountPath,
                     total: formatBytes(summary.disk.totalBytes),
                     used: formatBytes(summary.disk.usedBytes),
                     usedPercent,
-                    available: formatBytes(summary.disk.availableBytes)
+                    available: formatBytes(summary.disk.availableBytes),
+                    lastScan: formatDateTime(summary.scannedAt, language)
                   })
-                : t(language, 'ui.notScanned')}
+                : t(language, 'ui.scanUnderstandingEmpty')}
             </p>
+            <small>{t(language, 'ui.scanUnderstandingPromise')}</small>
           </div>
-          <div>
-            <span>{t(language, 'ui.summaryCanMove')}</span>
-            <strong>{formatBytes(cleanableStats.safeBytes)}</strong>
-            <p>{t(language, 'ui.summaryCanMoveHint')}</p>
-          </div>
-          <div>
-            <span>{t(language, 'ui.summaryReview')}</span>
-            <strong>{formatBytes(cleanableStats.confirmBytes)}</strong>
-            <p>{t(language, 'ui.summaryReviewHint')}</p>
-          </div>
-          <div>
-            <span>{t(language, 'ui.summaryLastScan')}</span>
-            <strong>{summary ? formatDateTime(summary.scannedAt, language) : t(language, 'ui.notScanned')}</strong>
-            <p>{localizeProgress(progress, language) ?? t(language, 'ui.noMutationHint')}</p>
-          </div>
+          {checklistSections.map((section) => (
+            <div className={`scan-understanding-card ${section.kind}`} key={section.kind}>
+              <span>{t(language, section.titleKey)}</span>
+              <strong>{t(language, 'ui.sectionTotal', { count: section.items.length.toLocaleString(language), bytes: formatBytes(section.totalBytes) })}</strong>
+              <p>{t(language, section.descriptionKey, { count: section.items.length.toLocaleString(language), bytes: formatBytes(section.totalBytes) })}</p>
+            </div>
+          ))}
         </section>
 
         {summary?.brief && (
@@ -894,7 +901,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           <div className="candidate-panel plain-panel">
             <div className="table-toolbar plain-toolbar">
               <div className="toolbar-summary">
-                <span>{resultView === 'map' ? t(language, 'ui.spaceMapTitle') : t(language, 'ui.checklistTitle')}</span>
+                <span>{resultView === 'map' ? t(language, 'ui.spaceMapTitle') : t(language, 'ui.directoryIndexTitle')}</span>
                 <strong>
                   {resultView === 'map'
                     ? t(language, 'ui.spaceMapCount', { count: filteredInsights.length.toLocaleString(language) })
@@ -912,31 +919,45 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   <option value="risk-desc">{t(language, 'ui.sortRisk')}</option>
                   <option value="name-asc">{t(language, 'ui.sortName')}</option>
                 </select>
-                {resultView !== 'map' && (
-                  <div className="toolbar-actions">
-                    <button
-                      className="secondary-button compact-action"
-                      onClick={toggleAllVisible}
-                      disabled={!visibleSafeCandidateIds.length}
-                    >
-                      <CheckCircle2 size={15} />
-                      <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
-                    </button>
-                    <button
-                      className="primary-button danger compact-action batch-action"
-                      onClick={() => openCleanupPreview(selectedCleanableIds)}
-                      disabled={!selectedCleanableIds.length}
-                    >
-                      <Trash2 size={15} />
-                      <span>{t(language, 'ui.batchConfirmAction')}</span>
-                      <strong className="batch-count-pill">
-                        {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
-                      </strong>
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
+
+            {resultView !== 'map' && (
+              <section className="pending-trash-strip" aria-label={t(language, 'ui.pendingTrashTitle')}>
+                <div className="pending-trash-copy">
+                  <span>{t(language, 'ui.pendingTrashTitle')}</span>
+                  <strong>{t(language, 'ui.pendingTrashHeadline', { count: pendingTrashStats.count.toLocaleString(language) })}</strong>
+                  <p>{t(language, 'ui.pendingTrashText')}</p>
+                </div>
+                <div className="pending-trash-metrics">
+                  <div>
+                    <span>{t(language, 'ui.pendingTrashBytes')}</span>
+                    <strong>{formatBytes(pendingTrashStats.bytes)}</strong>
+                  </div>
+                  <div>
+                    <span>{t(language, 'ui.pendingTrashPaths')}</span>
+                    <strong>{pendingTrashStats.paths.toLocaleString(language)}</strong>
+                  </div>
+                </div>
+                <div className="pending-trash-actions">
+                  <button className="secondary-button compact-action" onClick={toggleAllVisible} disabled={!visibleSafeCandidateIds.length}>
+                    <CheckCircle2 size={15} />
+                    <span>{selectedCleanableIds.length ? t(language, 'ui.clearSelection') : t(language, 'ui.selectCleanable')}</span>
+                  </button>
+                  <button
+                    className="primary-button danger compact-action"
+                    onClick={() => openCleanupPreview(selectedCleanableIds)}
+                    disabled={!selectedCleanableIds.length}
+                  >
+                    <Trash2 size={15} />
+                    <span>{t(language, 'ui.openBatchReview')}</span>
+                    <strong className="batch-count-pill">
+                      {t(language, 'ui.selectedCountBadge', { count: selectedCleanableIds.length.toLocaleString(language) })}
+                    </strong>
+                  </button>
+                </div>
+              </section>
+            )}
 
             {error && (
               <div className="message error-message">
@@ -1014,8 +1035,6 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                   if (item.source === 'candidate') void reveal(item.candidate)
                   else void revealRecommendation(item.recommendation)
                 }}
-                onCleanup={(candidate) => openCleanupPreview([candidate.id])}
-                onRecommendationAction={(recommendation) => void handleRecommendationAction(recommendation)}
               />
             )}
           </div>
@@ -1068,9 +1087,7 @@ function ChecklistPanel({
   hasSummary,
   onSelect,
   onToggleCandidate,
-  onReveal,
-  onCleanup,
-  onRecommendationAction
+  onReveal
 }: {
   sections: ChecklistSection[]
   selectedItem: ChecklistItem | null
@@ -1080,8 +1097,6 @@ function ChecklistPanel({
   onSelect: (item: ChecklistItem) => void
   onToggleCandidate: (candidateId: string) => void
   onReveal: (item: ChecklistItem) => void
-  onCleanup: (candidate: CleanupCandidate) => void
-  onRecommendationAction: (recommendation: StorageRecommendation) => void
 }): JSX.Element {
   const itemCount = sections.reduce((count, section) => count + section.items.length, 0)
   if (!itemCount) {
@@ -1107,13 +1122,12 @@ function ChecklistPanel({
             <em>{t(language, 'ui.sectionTotal', { count: section.items.length.toLocaleString(language), bytes: formatBytes(section.totalBytes) })}</em>
           </header>
           {section.items.length ? (
-            <div className="plain-table" role="table" aria-label={t(language, section.titleKey)}>
+            <div className="plain-table directory-index-table" role="table" aria-label={t(language, section.titleKey)}>
               <div className="plain-table-head" role="row">
                 <span>{t(language, 'ui.tableItem')}</span>
                 <span>{t(language, 'ui.tableSize')}</span>
+                <span>{t(language, 'ui.advisorSummary')}</span>
                 <span>{t(language, 'ui.whatThisIs')}</span>
-                <span>{t(language, 'ui.canDelete')}</span>
-                <span>{t(language, 'ui.afterCleanup')}</span>
                 <span>{t(language, 'ui.tableActions')}</span>
               </div>
               {section.items.map((item) => (
@@ -1126,8 +1140,6 @@ function ChecklistPanel({
                   onSelect={() => onSelect(item)}
                   onToggleCandidate={() => item.source === 'candidate' && onToggleCandidate(item.candidate.id)}
                   onReveal={() => onReveal(item)}
-                  onCleanup={() => item.source === 'candidate' && onCleanup(item.candidate)}
-                  onRecommendationAction={() => item.source === 'recommendation' && onRecommendationAction(item.recommendation)}
                 />
               ))}
             </div>
@@ -1147,9 +1159,7 @@ function ChecklistRow({
   checked,
   onSelect,
   onToggleCandidate,
-  onReveal,
-  onCleanup,
-  onRecommendationAction
+  onReveal
 }: {
   item: ChecklistItem
   language: AppLanguage
@@ -1158,8 +1168,6 @@ function ChecklistRow({
   onSelect: () => void
   onToggleCandidate: () => void
   onReveal: () => void
-  onCleanup: () => void
-  onRecommendationAction: () => void
 }): JSX.Element {
   const handleKeyboardSelect = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -1170,7 +1178,6 @@ function ChecklistRow({
   const canClean = item.source === 'candidate' && item.candidate.canClean
   const canShowPath = item.source === 'candidate' || Boolean(item.recommendation.pathToken)
   const title = checklistItemTitle(item, language)
-  const actionLabel = checklistItemAction(item, language)
   const Icon = checklistItemIcon(item)
 
   return (
@@ -1206,9 +1213,8 @@ function ChecklistRow({
         </span>
       </span>
       <span className="size-cell">{formatBytes(checklistItemSize(item))}</span>
+      <span className="plain-copy-cell">{checklistItemJudgment(item, language)}</span>
       <span className="plain-copy-cell">{checklistItemExplanation(item, 'what', language)}</span>
-      <span className="plain-copy-cell">{checklistItemExplanation(item, 'cleanability', language)}</span>
-      <span className="plain-copy-cell">{checklistItemExplanation(item, 'afterAction', language)}</span>
       <span className="row-actions">
         <button
           className="icon-button"
@@ -1222,33 +1228,17 @@ function ChecklistRow({
         >
           <FolderOpen size={15} />
         </button>
-        {item.source === 'candidate' ? (
-          <button
-            className="cleanup-button row-cleanup-button"
-            title={canClean ? actionLabel : t(language, 'ui.cannotClean')}
-            aria-label={canClean ? `${actionLabel}: ${title}` : `${t(language, 'ui.cannotClean')}: ${title}`}
-            disabled={!canClean}
-            onClick={(event) => {
-              event.stopPropagation()
-              onCleanup()
-            }}
-          >
-            <Trash2 size={15} />
-            <span className="sr-only">{actionLabel}</span>
-          </button>
-        ) : (
-          <button
-            className="icon-button"
-            title={actionLabel}
-            aria-label={`${actionLabel}: ${title}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              onRecommendationAction()
-            }}
-          >
-            <ChevronRight size={15} />
-          </button>
-        )}
+        <button
+          className="icon-button"
+          title={t(language, 'ui.viewReviewSheet')}
+          aria-label={`${t(language, 'ui.viewReviewSheet')}: ${title}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelect()
+          }}
+        >
+          <ChevronRight size={15} />
+        </button>
       </span>
     </div>
   )
@@ -1279,11 +1269,13 @@ function ChecklistInspector({
   const tone = checklistItemTone(item)
   const Icon = checklistItemIcon(item)
   const canPrimary = item.source === 'candidate' ? item.candidate.canClean : true
+  const movePaths = checklistItemPathSamples(item)
+  const canMoveFromApp = item.source === 'candidate' && item.candidate.canClean
 
   return (
-    <aside className="inspector plain-inspector">
+    <aside className="inspector plain-inspector review-sheet">
       <div className="inspector-heading">
-        <span>{t(language, `ui.checklistSection.${item.section}.short`)}</span>
+        <span>{t(language, 'ui.reviewSheetTitle')}</span>
         <span className={`safety-badge ${tone}`}>
           <Icon size={14} />
           {checklistItemBadge(item, language)}
@@ -1291,6 +1283,15 @@ function ChecklistInspector({
       </div>
       <h2>{title}</h2>
       <p className="path-line">{checklistItemPath(item)}</p>
+
+      <section className={`recommendation-card review-judgment ${tone}`}>
+        <div>
+          <Icon size={17} />
+          <span>{t(language, 'ui.advisorSummary')}</span>
+        </div>
+        <strong>{checklistItemJudgment(item, language)}</strong>
+        <p>{checklistItemExplanation(item, 'cleanability', language)}</p>
+      </section>
 
       <div className="detail-stack plain-detail-stack">
         <div className="detail-item">
@@ -1307,20 +1308,15 @@ function ChecklistInspector({
         </div>
       </div>
 
-      <section className={`recommendation-card ${tone}`}>
-        <div>
-          <Icon size={17} />
-          <span>{t(language, 'ui.recommendedAction')}</span>
-        </div>
-        <strong>{checklistItemAction(item, language)}</strong>
-        <p>{checklistItemExplanation(item, 'nextStep', language)}</p>
-      </section>
+      {item.source === 'candidate' ? (
+        <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={candidateTrustEvidence(item.candidate, language)} language={language} />
+      ) : (
+        <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={item.recommendation.evidence} language={language} />
+      )}
 
       <section className="impact-box plain-note-box">
         <span>{t(language, 'ui.whatThisIs')}</span>
         <p>{checklistItemExplanation(item, 'what', language)}</p>
-        <span>{t(language, 'ui.canDelete')}</span>
-        <p>{checklistItemExplanation(item, 'cleanability', language)}</p>
         <span>{t(language, 'ui.afterCleanup')}</span>
         <p>{checklistItemExplanation(item, 'afterAction', language)}</p>
         <span>{t(language, 'ui.whenToKeep')}</span>
@@ -1337,16 +1333,20 @@ function ChecklistInspector({
         </section>
       )}
 
+      <section className="impact-box review-path-box">
+        <span>{t(language, 'ui.moveEntryPaths')}</span>
+        <p>{t(language, canMoveFromApp ? 'ui.moveEntryPathsHelp' : 'ui.noMovePathsHelp')}</p>
+        <div className="sample-path-list">
+          {movePaths.map((sample) => (
+            <code key={sample}>{sample}</code>
+          ))}
+        </div>
+      </section>
+
       {item.source === 'candidate' ? (
-        <>
-          <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={candidateTrustEvidence(item.candidate, language)} language={language} />
-          <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={candidateDoNotTouch(item.candidate, language)} language={language} />
-        </>
+        <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={candidateDoNotTouch(item.candidate, language)} language={language} />
       ) : (
-        <>
-          <TrustEvidenceSection title={t(language, 'ui.advisorEvidence')} items={item.recommendation.evidence} language={language} />
-          <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={item.recommendation.doNotTouch} language={language} />
-        </>
+        <TrustEvidenceSection title={t(language, 'ui.doNotTouch')} items={item.recommendation.doNotTouch} language={language} />
       )}
 
       {item.source === 'candidate' && item.candidate.displayKind === 'group' && (
@@ -2114,59 +2114,65 @@ function ConfirmationModal({
             <strong>{localizeTrustSummary(preview.trustReport, language)}</strong>
           </div>
         )}
-        <div className="modal-safety-promise">
-          <ShieldCheck size={17} />
-          <div>
-            <strong>{t(language, 'ui.modalSafetyPromiseTitle')}</strong>
-            <span>{t(language, 'ui.modalSafetyPromiseText')}</span>
+        <div className="final-review-layout">
+          <div className="final-review-left">
+            <div className="modal-safety-promise">
+              <ShieldCheck size={17} />
+              <div>
+                <strong>{t(language, 'ui.modalSafetyPromiseTitle')}</strong>
+                <span>{t(language, 'ui.modalSafetyPromiseText')}</span>
+              </div>
+            </div>
+            <div className="confirmation-summary">
+              <div>
+                <span>{t(language, 'ui.confirmEstimatedSize')}</span>
+                <strong>{formatBytes(preview.totalBytes)}</strong>
+              </div>
+              <div>
+                <span>{t(language, 'ui.confirmPathCount')}</span>
+                <strong>{preview.pathCount.toLocaleString(language)}</strong>
+              </div>
+              <div>
+                <span>{t(language, 'ui.confirmOperationPathCount')}</span>
+                <strong>{operationPaths.length.toLocaleString(language)}</strong>
+              </div>
+            </div>
+            <details className="operation-paths" open>
+              <summary>{t(language, 'ui.operationPathList')}</summary>
+              <p>{t(language, 'ui.operationPathListHelp')}</p>
+              <div className="preview-list">
+                {operationPaths.map((sample) => (
+                  <span key={sample}>{sample}</span>
+                ))}
+              </div>
+            </details>
+            {preview.explanation && (
+              <div className="modal-explanation">
+                <div>
+                  <strong>{t(language, 'ui.afterCleanup')}</strong>
+                  <span>{localizePreviewExplanation(preview, 'afterAction', language, localizePreviewImpact(preview, language))}</span>
+                </div>
+                <div>
+                  <strong>{t(language, 'ui.whenToKeep')}</strong>
+                  <span>{localizePreviewExplanation(preview, 'keepAdvice', language, localizePreviewWarning(preview, language))}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="final-review-right">
+            {preview.trustReport && (
+              <>
+                <TrustEvidenceSection title={t(language, 'ui.trustEvidence')} items={preview.trustReport.evidence} language={language} />
+                <TrustEvidenceSection title={t(language, 'ui.trustGuarantees')} items={preview.trustReport.guarantees} language={language} />
+                <TrustEvidenceSection title={t(language, 'ui.trustExclusions')} items={preview.trustReport.exclusions} language={language} />
+                <section className="trust-section">
+                  <h3>{t(language, 'ui.trustRecovery')}</h3>
+                  <p>{localizeTrustRecovery(preview.trustReport, language)}</p>
+                </section>
+              </>
+            )}
           </div>
         </div>
-        <div className="confirmation-summary">
-          <div>
-            <span>{t(language, 'ui.confirmEstimatedSize')}</span>
-            <strong>{formatBytes(preview.totalBytes)}</strong>
-          </div>
-          <div>
-            <span>{t(language, 'ui.confirmPathCount')}</span>
-            <strong>{preview.pathCount.toLocaleString(language)}</strong>
-          </div>
-          <div>
-            <span>{t(language, 'ui.confirmOperationPathCount')}</span>
-            <strong>{operationPaths.length.toLocaleString(language)}</strong>
-          </div>
-        </div>
-        {preview.trustReport && (
-          <div className="trust-grid">
-            <TrustEvidenceSection title={t(language, 'ui.trustEvidence')} items={preview.trustReport.evidence} language={language} />
-            <TrustEvidenceSection title={t(language, 'ui.trustGuarantees')} items={preview.trustReport.guarantees} language={language} />
-            <TrustEvidenceSection title={t(language, 'ui.trustExclusions')} items={preview.trustReport.exclusions} language={language} />
-            <section className="trust-section">
-              <h3>{t(language, 'ui.trustRecovery')}</h3>
-              <p>{localizeTrustRecovery(preview.trustReport, language)}</p>
-            </section>
-          </div>
-        )}
-        <details className="operation-paths" open>
-          <summary>{t(language, 'ui.operationPathList')}</summary>
-          <p>{t(language, 'ui.operationPathListHelp')}</p>
-          <div className="preview-list">
-            {operationPaths.map((sample) => (
-              <span key={sample}>{sample}</span>
-            ))}
-          </div>
-        </details>
-        {preview.explanation && (
-          <div className="modal-explanation">
-            <div>
-              <strong>{t(language, 'ui.afterCleanup')}</strong>
-              <span>{localizePreviewExplanation(preview, 'afterAction', language, localizePreviewImpact(preview, language))}</span>
-            </div>
-            <div>
-              <strong>{t(language, 'ui.whenToKeep')}</strong>
-              <span>{localizePreviewExplanation(preview, 'keepAdvice', language, localizePreviewWarning(preview, language))}</span>
-            </div>
-          </div>
-        )}
         <div className="modal-warning">
           <AlertTriangle size={16} />
           <span>{localizePreviewExplanation(preview, 'summary', language, localizePreviewImpact(preview, language))}</span>
@@ -2808,6 +2814,13 @@ function checklistItemIcon(item: ChecklistItem): LucideIcon {
   return recommendationIcon(item.recommendation.kind)
 }
 
+function checklistItemJudgment(item: ChecklistItem, language: AppLanguage): string {
+  return t(language, `advisor.summary.${item.section}`, {
+    title: checklistItemTitle(item, language),
+    size: formatBytes(checklistItemSize(item))
+  })
+}
+
 function checklistItemAction(item: ChecklistItem, language: AppLanguage): string {
   return item.source === 'candidate'
     ? localizeCandidateAction(item.candidate, language)
@@ -2835,6 +2848,12 @@ function checklistItemExplanation(item: ChecklistItem, field: HumanExplanationFi
 function checklistItemLastModified(item: ChecklistItem, language: AppLanguage): string {
   const lastModified = item.source === 'candidate' ? item.candidate.lastModified : item.recommendation.lastModified
   return lastModified ? formatDate(lastModified, language) : t(language, 'ui.unknown')
+}
+
+function checklistItemPathSamples(item: ChecklistItem): string[] {
+  const samples = item.source === 'candidate' ? item.candidate.pathSamples : item.recommendation.pathSamples
+  const fallback = checklistItemPath(item)
+  return (samples.length ? samples : [fallback]).slice(0, 8)
 }
 
 function candidateTrustEvidence(candidate: CleanupCandidate, language: AppLanguage): TrustEvidenceItem[] {
