@@ -838,6 +838,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
               tabIndex={0}
               aria-label={t(language, 'ui.issueDetailsBodyAria')}
             >
+              <div className="issue-boundary-intro">{t(language, 'ui.issueBoundaryIntro')}</div>
               {summary.issueGroups.length > 1 && (
                 <div className="issue-scroll-hint">{t(language, 'ui.issueScrollHint')}</div>
               )}
@@ -845,6 +846,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
                 <div className="issue-group-row" key={group.id}>
                   <strong>{localizeIssueGroupTitle(group, language)}</strong>
                   <p>{localizeIssueGroupMessage(group, language)}</p>
+                  <p className="issue-group-next-step">{localizeIssueGroupNextStep(group, language)}</p>
                   {group.pathSamples.slice(0, 4).map((sample) => (
                     <code key={sample}>{sample}</code>
                   ))}
@@ -2409,6 +2411,10 @@ function localizeIssueGroupTitle(group: ScanIssueGroup, language: AppLanguage): 
 
 function localizeIssueGroupMessage(group: ScanIssueGroup, language: AppLanguage): string {
   return group.messageKey ? t(language, group.messageKey, group.messageParams) : group.message
+}
+
+function localizeIssueGroupNextStep(group: ScanIssueGroup, language: AppLanguage): string {
+  return t(language, `issueGroup.${group.kind}.nextStep`, group.messageParams)
 }
 
 function localizeInsightTitle(insight: StorageInsight, language: AppLanguage): string {

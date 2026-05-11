@@ -561,6 +561,7 @@ summary:focus-visible,
   padding-right: 8px;
 }
 
+.issue-boundary-intro,
 .issue-scroll-hint,
 .issue-group-row,
 .permission-note,
@@ -579,8 +580,23 @@ summary:focus-visible,
   gap: 5px;
 }
 
+.issue-boundary-intro {
+  margin-top: 0;
+  color: var(--text);
+  background: var(--surface);
+}
+
 .issue-group-row strong {
   color: var(--confirm);
+}
+
+.issue-group-next-step {
+  padding: 7px 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow-wrap: anywhere;
 }
 
 .issue-group-row code {
