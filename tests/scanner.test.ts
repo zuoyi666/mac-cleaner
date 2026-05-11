@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { scanStorage } from '../src/main/services/scanner'
 
 const tempRoots: string[] = []
 const fixedNow = new Date('2026-05-05T12:00:00.000Z')
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(tempRoots.map((root) => fs.rm(root, { recursive: true, force: true })))
   tempRoots.length = 0
 })
@@ -26,6 +27,25 @@ describe('scanStorage', () => {
     expect(candidate?.sizeBytes).toBe(128)
     expect(candidate?.pathPreview).toBe('~/Library/Caches/com.example.app')
     expect(run.summary.issues.some((issue) => issue.message.includes('符号链接'))).toBe(true)
+  })
+
+  it('reports a timed-out large directory once instead of flooding every child path', async () => {
+    const homeDir = await makeHome()
+    await Promise.all(
+      Array.from({ length: 6 }, (_unused, index) => writeSizedFile(path.join(homeDir, 'Library', 'Caches', 'deep-cache', `part-${index}.bin`), 128))
+    )
+    let nowMs = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      nowMs += 20_000
+      return nowMs
+    })
+
+    const run = await scanStorage({ homeDir, now: fixedNow, mode: 'standard' })
+    const timeoutGroup = run.summary.issueGroups.find((group) => group.kind === 'timeout')
+
+    expect(timeoutGroup?.count).toBe(1)
+    expect(timeoutGroup?.severity).toBe('info')
+    expect(timeoutGroup?.pathSamples).toEqual(['~/Library/Caches/deep-cache'])
   })
 
   it('only includes old installer and archive files from Downloads', async () => {

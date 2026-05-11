@@ -823,6 +823,41 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           ))}
         </section>
 
+        {summary && (
+          <section className={`read-coverage-strip ${summary.coverage.fullDiskAccessStatus}`}>
+            <div className="read-coverage-main">
+              <ShieldCheck size={17} />
+              <div>
+                <strong>{t(language, 'ui.readCoverageTitle')}</strong>
+                <p>
+                  {summary.coverage.fullDiskAccessStatus === 'likely-granted'
+                    ? t(language, 'ui.readCoverageGrantedText')
+                    : t(language, 'ui.readCoverageText')}
+                </p>
+              </div>
+            </div>
+            <div className="read-coverage-side">
+              <span>
+                {t(language, 'ui.readCoverageStats', {
+                  entries: summary.coverage.scannedEntries.toLocaleString(language),
+                  bytes: formatBytes(summary.coverage.measuredBytes)
+                })}
+              </span>
+              {summary.coverage.fullDiskAccessStatus !== 'likely-granted' ? (
+                <button className="secondary-button mini" onClick={() => void openFullDiskAccessSettings()}>
+                  <ShieldCheck size={14} />
+                  {t(language, 'ui.readCoverageButton')}
+                </button>
+              ) : (
+                <span className="permission-status-pill granted">
+                  <CheckCircle2 size={14} />
+                  {t(language, 'ui.fullDiskAccessGrantedShort')}
+                </span>
+              )}
+            </div>
+          </section>
+        )}
+
         {summary?.brief && (
           <section className="plain-scan-note" aria-label={t(language, 'ui.scanBriefTitle')}>
             <div>
@@ -837,7 +872,7 @@ export function MacCleanerApp({ api, initialSummary }: MacCleanerAppProps): JSX.
           <details className="issue-details plain-issues">
             <summary>
               <Info size={15} />
-              <span>{t(language, 'ui.issueSummary', { count: summary.issues.length.toLocaleString(language) })}</span>
+              <span>{t(language, 'ui.issueSummary', { count: summary.issueGroups.length.toLocaleString(language) })}</span>
             </summary>
             <div
               className="issue-details-body"

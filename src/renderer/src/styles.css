@@ -447,6 +447,7 @@ summary:focus-visible,
 .update-banner,
 .message,
 .plain-scan-note,
+.read-coverage-strip,
 .issue-line {
   display: flex;
   align-items: center;
@@ -584,6 +585,55 @@ summary:focus-visible,
 
 .plain-scan-note > span {
   max-width: 420px;
+}
+
+.read-coverage-strip {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.read-coverage-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.read-coverage-main svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--safe);
+}
+
+.read-coverage-main div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.read-coverage-main strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.read-coverage-main p,
+.read-coverage-side span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.read-coverage-side {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 390px;
+}
+
+.read-coverage-side > span:first-child {
+  text-align: right;
 }
 
 .issue-line {
@@ -1674,8 +1724,23 @@ summary:focus-visible,
   }
 
   .pending-trash-strip,
+  .read-coverage-strip,
   .final-review-layout {
     grid-template-columns: 1fr;
+  }
+
+  .read-coverage-strip {
+    display: grid;
+  }
+
+  .read-coverage-side {
+    width: 100%;
+    max-width: none;
+    justify-content: space-between;
+  }
+
+  .read-coverage-side > span:first-child {
+    text-align: left;
   }
 
   .inspector {

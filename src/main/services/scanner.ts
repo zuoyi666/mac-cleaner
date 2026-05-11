@@ -50,11 +50,11 @@ const DOWNLOAD_EXTENSIONS = new Set([
 
 const OLD_DOWNLOAD_DAYS = 30
 const TOP_LEVEL_MEASURE_CONCURRENCY = 4
-const MAX_CANDIDATE_SCAN_MS = 15_000
+const MAX_CANDIDATE_SCAN_MS = 30_000
 const DEFAULT_STANDALONE_THRESHOLD_BYTES = 100 * 1024 * 1024
 const DOWNLOAD_STANDALONE_THRESHOLD_BYTES = 50 * 1024 * 1024
 const MAX_GROUP_PATH_SAMPLES = 8
-const MAX_INSIGHT_SCAN_MS = 3_500
+const MAX_INSIGHT_SCAN_MS = 10_000
 const MAX_INSIGHTS = 80
 const INSIGHT_MIN_BYTES = 50 * 1024 * 1024
 const INSIGHT_MEASURE_CONCURRENCY = 3
@@ -129,6 +129,8 @@ interface MeasureContext {
   scanId: string
   homeDir: string
   language: AppLanguage
+  timeoutIssuePaths: Set<string>
+  timeoutReportPath?: string
 }
 
 interface InsightScanResult {
@@ -258,6 +260,7 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     scannedEntries: 0,
     measuredBytes: 0
   }
+  const timeoutIssuePaths = new Set<string>()
 
   options.onProgress?.({
     scanId,
@@ -304,7 +307,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
           onProgress: options.onProgress,
           scanId,
           homeDir,
-          language
+          language,
+          timeoutIssuePaths
         }
       )
       categoryCandidates.push(...discovered)
@@ -328,7 +332,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
     onProgress: options.onProgress,
     scanId,
     homeDir,
-    language
+    language,
+    timeoutIssuePaths
   })
   if (trash.pathToken) {
     pathTokens.set(trash.pathToken, path.join(homeDir, '.Trash'))
@@ -343,7 +348,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
       onProgress: options.onProgress,
       scanId,
       homeDir,
-      language
+      language,
+      timeoutIssuePaths
     })
     for (const insight of insightScan.insights) {
       if (insight.pathToken && insight.canReveal) {
@@ -364,7 +370,8 @@ export async function scanStorage(options: ScanOptions = {}): Promise<ScanRun> {
         onProgress: options.onProgress,
         scanId,
         homeDir,
-        language
+        language,
+        timeoutIssuePaths
       })
     : { recommendations: [], pathTokens: new Map<string, string>() }
   for (const [token, targetPath] of recommendationScan.pathTokens) {
@@ -487,7 +494,8 @@ async function discoverCandidatesForRoot(
 
     const candidateCtx = {
       ...ctx,
-      deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS
+      deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS,
+      timeoutReportPath: entryPath
     }
     const measured = category.directChildrenOnly
       ? measureSingleStats(stats)
@@ -506,7 +514,7 @@ async function discoverCandidatesForRoot(
 async function measurePath(targetPath: string, ctx: MeasureContext): Promise<MeasuredPath> {
   throwIfAborted(ctx.signal)
   if (Date.now() > ctx.deadlineMs) {
-    ctx.issues.push(makeIssue(targetPath, 'issue.measureTimeout', 'warning', ctx.language))
+    recordMeasureTimeout(targetPath, ctx)
     return { sizeBytes: 0, itemCount: 0, pathCount: 0, estimateSource: 'partial-filesystem-walk', truncated: true }
   }
 
@@ -556,6 +564,11 @@ async function measurePath(targetPath: string, ctx: MeasureContext): Promise<Mea
 
   for (const entry of entries) {
     throwIfAborted(ctx.signal)
+    if (Date.now() > ctx.deadlineMs) {
+      recordMeasureTimeout(targetPath, ctx)
+      truncated = true
+      break
+    }
     const child = await measurePath(path.join(targetPath, entry), ctx)
     sizeBytes += child.sizeBytes
     itemCount += child.itemCount
@@ -596,7 +609,7 @@ async function scanTrash(homeDir: string, issues: ScanIssue[], ctx: MeasureConte
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
       return { sizeBytes: 0, itemCount: 0 }
     }
-    const measured = await measurePath(trashPath, ctx)
+    const measured = await measurePath(trashPath, { ...ctx, timeoutReportPath: trashPath })
     return {
       sizeBytes: measured.sizeBytes,
       itemCount: measured.itemCount,
@@ -917,7 +930,7 @@ async function measureRecommendationPath(
       return null
     }
     return stats.isDirectory()
-      ? measurePath(targetPath, { ...ctx, deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS })
+      ? measurePath(targetPath, { ...ctx, deadlineMs: Date.now() + MAX_CANDIDATE_SCAN_MS, timeoutReportPath: targetPath })
       : measureSingleStats(stats)
   } catch (error) {
     if (isAbortError(error)) throw error
@@ -1372,7 +1385,7 @@ async function discoverInsightsForRoot(
     }
 
     const measured = stats.isDirectory()
-      ? await measurePath(entryPath, { ...ctx, deadlineMs: Date.now() + MAX_INSIGHT_SCAN_MS })
+      ? await measurePath(entryPath, { ...ctx, deadlineMs: Date.now() + MAX_INSIGHT_SCAN_MS, timeoutReportPath: entryPath })
       : measureSingleStats(stats)
     if (measured.sizeBytes <= 0) return
     if (measured.sizeBytes < INSIGHT_MIN_BYTES && measured.estimateSource !== 'partial-filesystem-walk') return
@@ -1912,6 +1925,13 @@ function makeCoverage(
     protectedCount: issues.filter((issue) => classifyIssue(issue) === 'protected').length,
     insightCount: insightScan.insights.length
   }
+}
+
+function recordMeasureTimeout(targetPath: string, ctx: MeasureContext): void {
+  const issuePath = ctx.timeoutReportPath ?? targetPath
+  if (ctx.timeoutIssuePaths.has(issuePath)) return
+  ctx.timeoutIssuePaths.add(issuePath)
+  ctx.issues.push(makeIssue(issuePath, 'issue.measureTimeout', 'info', ctx.language))
 }
 
 async function detectFullDiskAccessStatus(homeDir: string): Promise<FullDiskAccessStatus> {
